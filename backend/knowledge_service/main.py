@@ -1,0 +1,75 @@
+"""Knowledge Service - FastAPI 应用入口
+
+知识库管理微服务，端口 8003。
+负责知识库 CRUD、文档上传/解析/切块/向量化入库。
+"""
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from common.config import settings
+from common.database import create_pool, close_pool
+from common.http_client import create_client, close_client
+from common.logging_config import setup_logger, get_logger
+from common.exception_handlers import register_exception_handlers
+
+from .routers import knowledge_base, document
+
+setup_logger()
+logger = get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：初始化 MySQL 连接池、httpx 客户端、上传目录"""
+    logger.info("Knowledge Service 启动中...")
+
+    # 初始化 MySQL 连接池
+    await create_pool()
+    logger.info("MySQL 连接池已初始化")
+
+    # 初始化 httpx 异步客户端
+    await create_client()
+    logger.info("httpx 客户端已初始化")
+
+    # 确保上传目录存在
+    upload_dir = settings.upload_dir_path
+    logger.info("上传目录: %s", upload_dir)
+
+    logger.info("Knowledge Service 启动完成，监听端口 8003")
+    yield
+
+    # 清理资源
+    await close_client()
+    await close_pool()
+    logger.info("Knowledge Service 已关闭")
+
+
+app = FastAPI(title="Knowledge Service", lifespan=lifespan)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 注册全局异常处理器
+register_exception_handlers(app)
+
+# 挂载路由
+app.include_router(knowledge_base.router)
+app.include_router(document.router)
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "knowledge_service.main:app",
+        host="0.0.0.0",
+        port=8003,
+        reload=True,
+    )

@@ -57,11 +57,12 @@ async def send_message(
 
     # 6. 调用 ai-service SSE 流式
     kb_id = session.get("kb_id") or 1
+    mode = session.get("mode", "kb")
     full_response = ""
     sources_data = None
 
     try:
-        async for line in call_ai_chat(content, kb_id, context):
+        async for line in call_ai_chat(content, kb_id, context, mode=mode):
             event = parse_sse_line(line)
             if event is None:
                 continue

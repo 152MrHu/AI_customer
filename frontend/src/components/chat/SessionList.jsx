@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react'
-import { Input, Button, List, Typography, Popconfirm, Empty, Spin, theme } from 'antd'
+import { Input, Button, List, Typography, Popconfirm, Empty, Spin, Segmented, theme } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
   DeleteOutlined,
   MessageOutlined,
+  BookOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import { formatTime } from '../../utils/format'
 
@@ -17,6 +19,8 @@ export default function SessionList({
   onSelect,
   onCreate,
   onDelete,
+  createMode,
+  onModeChange,
 }) {
   const [keyword, setKeyword] = useState('')
   const { token: themeToken } = theme.useToken()
@@ -34,6 +38,17 @@ export default function SessionList({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '12px 12px 8px' }}>
+        {/* 模式选择 */}
+        <Segmented
+          block
+          value={createMode}
+          onChange={onModeChange}
+          options={[
+            { label: <><BookOutlined /> 知识库</>, value: 'kb' },
+            { label: <><GlobalOutlined /> 通用助手</>, value: 'assistant' },
+          ]}
+          style={{ marginBottom: 12 }}
+        />
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -98,7 +113,7 @@ export default function SessionList({
                       ellipsis
                       style={{ flex: 1, color: active ? themeToken.colorPrimaryText : undefined }}
                     >
-                      <MessageOutlined style={{ marginRight: 6 }} />
+                      {item.mode === 'assistant' ? <GlobalOutlined style={{ marginRight: 6 }} /> : <BookOutlined style={{ marginRight: 6 }} />}
                       {item.title || '新会话'}
                     </Text>
                     <Popconfirm

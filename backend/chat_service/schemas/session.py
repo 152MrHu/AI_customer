@@ -12,6 +12,9 @@ class CreateSessionRequest(BaseModel):
     knowledge_base_id: Optional[int] = Field(
         None, description="知识库 ID，为 None 时使用默认知识库(kb_id=1)"
     )
+    mode: str = Field(
+        "kb", description="对话模式: kb=知识库模式, assistant=通用助手模式"
+    )
 
 
 class SendMessageRequest(BaseModel):
@@ -36,6 +39,7 @@ class SessionListItem(BaseModel):
     """会话列表项"""
     session_id: int
     title: str
+    mode: Optional[str] = "kb"
     last_message_preview: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -45,6 +49,7 @@ class SessionDetail(BaseModel):
     session_id: int
     title: str
     knowledge_base_id: Optional[int] = None
+    mode: Optional[str] = "kb"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     messages: List[MessageItem] = Field(default_factory=list)
@@ -55,4 +60,5 @@ class CreateSessionResponse(BaseModel):
     session_id: int
     title: str
     knowledge_base_id: int
+    mode: str = "kb"
     created_at: Optional[str] = None

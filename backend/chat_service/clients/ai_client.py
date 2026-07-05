@@ -14,6 +14,7 @@ async def call_ai_chat(
     knowledge_base_id: int,
     context: list[dict],
     top_k: Optional[int] = None,
+    mode: str = "kb",
 ) -> AsyncGenerator[str, None]:
     """
     调用 ai-service 的 /api/ai/chat 接口（SSE 流式），
@@ -23,6 +24,7 @@ async def call_ai_chat(
     :param knowledge_base_id: 知识库 ID
     :param context: 历史对话 [{"role": "user"/"assistant", "content": "..."}]
     :param top_k: 检索返回数量
+    :param mode: 对话模式: kb=知识库模式, assistant=通用助手模式
     """
     url = f"{settings.AI_SERVICE_URL}/api/ai/chat"
     payload = {
@@ -30,10 +32,11 @@ async def call_ai_chat(
         "knowledge_base_id": knowledge_base_id,
         "context": context,
         "top_k": top_k or settings.TOP_K,
+        "mode": mode,
     }
     logger.info(
-        "调用 ai-service SSE 流: kb_id=%s, query_len=%s",
-        knowledge_base_id, len(query),
+        "调用 ai-service SSE 流: kb_id=%s, mode=%s, query_len=%s",
+        knowledge_base_id, mode, len(query),
     )
 
     async for line in stream_post(url, json=payload):

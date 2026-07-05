@@ -19,6 +19,13 @@
 - `backend/common/config.py` 的 `env_file=".env"` 是相对路径，必须在 `backend/` 目录下运行命令，.env 放 backend 根目录
 - README 说 admin 脚本在 `scripts/init/`，实际在 `scripts/` 平铺
 
+### 架构特点
+- **ChromaDB 单进程架构**：只有 knowledge_service 直接操作 ChromaDB，ai_service 通过 HTTP `/api/knowledge/search|count` 远程调用（避免多进程文件锁冲突）
+- **双模式对话**：sessions 表有 `mode` 字段（kb/assistant）
+  - kb 模式：严格 RAG，知识库无内容则回答"不知道"
+  - assistant 模式：DashScope enable_search=True（qwen-plus 联网搜索增强）
+- **前端 FormData 修复**：request.js 自动检测 FormData时不设 Content-Type
+
 ### 历史问题
 - 2026-07-03 首跑遇到 "query 向量化超时"，疑 DashScope 网络或额度
 - 2026-07-05 发现 DashScope SDK 1.26.2 的 `response.output` 返回 dict 不是对象，`ai_service/adapter/dashscope_adapter.py` 的属性访问会失败 → 已修复（兼容 dict）

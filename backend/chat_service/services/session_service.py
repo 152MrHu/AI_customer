@@ -67,6 +67,7 @@ def _to_session_detail(row: dict, messages: list[dict]) -> dict:
         "session_id": row["session_id"],
         "title": row.get("title", "新会话"),
         "knowledge_base_id": row.get("kb_id"),
+        "mode": row.get("mode", "kb"),
         "created_at": _iso(row.get("created_at")),
         "updated_at": _iso(row.get("updated_at")),
         "messages": [_to_message_item(m) for m in messages],
@@ -77,10 +78,12 @@ async def create_session(user_id: int, data: CreateSessionRequest) -> dict:
     """
     创建会话：
     - kb_id 为 None 时使用默认知识库(1)
+    - mode: kb=知识库模式, assistant=通用助手模式
     - 检查用户会话上限(100)，超过自动清理最早已删除前的最早会话
     - 创建 session 并写 Redis 缓存
     """
     kb_id = data.knowledge_base_id if data.knowledge_base_id else DEFAULT_KB_ID
+    mode = data.mode if data.mode in ("kb", "assistant") else "kb"
 
     # 检查会话数量上限，超过则清理最早的会话
     current_count = await session_repo.count_user_sessions(user_id)
@@ -95,7 +98,7 @@ async def create_session(user_id: int, data: CreateSessionRequest) -> dict:
             await delete_cached_session(oldest["session_id"])
 
     # 创建新会话
-    session_id = await session_repo.insert_session(user_id, kb_id, "新会话")
+    session_id = await session_repo.insert_session(user_id, kb_id, "新会话", mode=mode)
     session = await session_repo.find_by_id(session_id)
     if not session:
         raise BusinessError(ErrorCode.SERVER_ERROR, "会话创建失败")
@@ -105,6 +108,7 @@ async def create_session(user_id: int, data: CreateSessionRequest) -> dict:
         "session_id": str(session_id),
         "user_id": str(user_id),
         "kb_id": str(kb_id),
+        "mode": mode,
         "title": session.get("title", "新会话"),
     }
     try:
@@ -113,13 +117,14 @@ async def create_session(user_id: int, data: CreateSessionRequest) -> dict:
         logger.warning("写会话缓存失败(忽略): session_id=%s, err=%s", session_id, e)
 
     logger.info(
-        "创建会话成功: user_id=%s, session_id=%s, kb_id=%s",
-        user_id, session_id, kb_id,
+        "创建会话成功: user_id=%s, session_id=%s, kb_id=%s, mode=%s",
+        user_id, session_id, kb_id, mode,
     )
     return {
         "session_id": session_id,
         "title": session.get("title", "新会话"),
         "knowledge_base_id": kb_id,
+        "mode": mode,
         "created_at": _iso(session.get("created_at")),
     }
 
@@ -139,6 +144,7 @@ async def list_sessions(
         items.append({
             "session_id": row["session_id"],
             "title": row.get("title", "新会话"),
+            "mode": row.get("mode", "kb"),
             "last_message_preview": preview,
             "updated_at": _iso(row.get("updated_at")),
         })

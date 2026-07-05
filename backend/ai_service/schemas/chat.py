@@ -15,6 +15,9 @@ class RagChatRequest(BaseModel):
     knowledge_base_id: int = Field(..., description="知识库 ID")
     context: List[ChatMessage] = Field(default_factory=list, description="对话历史")
     top_k: int = Field(default=5, ge=1, le=20, description="检索返回数量")
+    mode: str = Field(
+        "kb", description="对话模式: kb=知识库模式, assistant=通用助手模式"
+    )
 
 
 class SourceItem(BaseModel):

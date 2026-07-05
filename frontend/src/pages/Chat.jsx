@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Typography, Empty, message, theme } from 'antd'
-import { RobotOutlined } from '@ant-design/icons'
+import { Layout, Typography, Empty, message, theme, Segmented } from 'antd'
+import { RobotOutlined, BookOutlined, GlobalOutlined } from '@ant-design/icons'
 import MainLayout from '../layouts/MainLayout'
 import SessionList from '../components/chat/SessionList'
 import MessageList from '../components/chat/MessageList'
@@ -22,6 +22,7 @@ export default function Chat() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [sessionDetail, setSessionDetail] = useState(null)
+  const [createMode, setCreateMode] = useState('kb')
   const streamAbortRef = useRef(false)
   const { token: themeToken } = theme.useToken()
 
@@ -76,10 +77,11 @@ export default function Chat() {
 
   const handleCreateSession = useCallback(async () => {
     try {
-      const data = await chatApi.createSession(null)
+      const data = await chatApi.createSession(null, createMode)
       const newSession = {
         session_id: data.session_id,
         title: data.title,
+        mode: data.mode || createMode,
         created_at: data.created_at,
         updated_at: data.created_at,
         preview: '',
@@ -92,7 +94,7 @@ export default function Chat() {
     } catch (e) {
       message.error(e.message || '创建会话失败')
     }
-  }, [])
+  }, [createMode])
 
   const handleDeleteSession = useCallback(
     async (sessionId) => {
@@ -193,6 +195,8 @@ export default function Chat() {
             onSelect={handleSelectSession}
             onCreate={handleCreateSession}
             onDelete={handleDeleteSession}
+            createMode={createMode}
+            onModeChange={setCreateMode}
           />
         </Sider>
         <Content style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -203,11 +207,23 @@ export default function Chat() {
                   padding: '12px 24px',
                   borderBottom: `1px solid ${themeToken.colorBorderSecondary}`,
                   background: themeToken.colorBgContainer,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
                 }}
               >
                 <Title level={5} style={{ margin: 0 }}>
                   {sessionDetail?.title || '当前会话'}
                 </Title>
+                {sessionDetail?.mode === 'assistant' ? (
+                  <Text style={{ color: themeToken.colorPrimary, fontSize: 12 }}>
+                    <GlobalOutlined /> 通用助手模式
+                  </Text>
+                ) : (
+                  <Text style={{ color: themeToken.colorTextSecondary, fontSize: 12 }}>
+                    <BookOutlined /> 知识库模式
+                  </Text>
+                )}
               </div>
               <MessageList
                 messages={messages}

@@ -5,15 +5,15 @@ from common.database import DB, fetchone, fetchall, execute
 
 
 async def insert_session(
-    user_id: int, kb_id: Optional[int], title: str = "新会话"
+    user_id: int, kb_id: Optional[int], title: str = "新会话", mode: str = "kb"
 ) -> int:
     """插入新会话，返回自增 session_id"""
     sql = (
-        "INSERT INTO sessions (user_id, kb_id, title) "
-        "VALUES (%s, %s, %s)"
+        "INSERT INTO sessions (user_id, kb_id, title, mode) "
+        "VALUES (%s, %s, %s, %s)"
     )
     async with DB() as db:
-        await db.cur.execute(sql, (user_id, kb_id, title))
+        await db.cur.execute(sql, (user_id, kb_id, title, mode))
         return db.cur.lastrowid
 
 
@@ -49,7 +49,7 @@ async def list_sessions(
         params.append(f"%{keyword}%")
     where = " WHERE " + " AND ".join(conditions)
     sql = (
-        f"SELECT session_id, user_id, kb_id, title, status, "
+        f"SELECT session_id, user_id, kb_id, title, mode, status, "
         f"created_at, updated_at "
         f"FROM sessions{where} "
         f"ORDER BY updated_at DESC LIMIT %s OFFSET %s"

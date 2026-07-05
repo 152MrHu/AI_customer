@@ -9,8 +9,37 @@ from .base import LLMAdapter
 
 logger = get_logger()
 
-# 哨兵对象，用于标识流结束（避免 StopIteration 泄漏到异步生成器）
+# 哨兵对象，用于标识流结束
 _STREAM_END = object()
+
+# 搜索增强推荐使用的模型（qwen-turbo 不支持联网搜索）
+SEARCH_MODEL = "qwen-plus"
+
+
+def _extract_text_prompt_format(response) -> str | None:
+    """从 prompt 格式的流式响应中提取文本片段"""
+    text = getattr(getattr(response, "output", None), "text", None)
+    return text if text else None
+
+
+def _extract_text_message_format(response) -> str | None:
+    """从 messages 格式的流式响应中提取文本片段（兼容 dict/object）"""
+    output = getattr(response, "output", None)
+    if isinstance(output, dict):
+        choices = output.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            return content if content else None
+    else:
+        choices = getattr(output, "choices", None)
+        if choices:
+            message = getattr(choices[0], "message", None)
+            content = getattr(message, "content", None)
+            return content if content else None
+    # 旧格式兼容
+    text = getattr(output, "text", None) if output else None
+    return text if text else None
 
 
 class DashScopeAdapter(LLMAdapter):
@@ -20,71 +49,82 @@ class DashScopeAdapter(LLMAdapter):
         self.api_key = api_key
         self.llm_model = llm_model
         self.embedding_model = embedding_model
-        # 设置全局 api_key 作为兜底
         if api_key:
             dashscope.api_key = api_key
 
     async def chat_stream(self, prompt: str, **kwargs) -> AsyncGenerator[str, None]:
         """
-        流式对话：调用 dashscope.Generation.call(stream=True, incremental_output=True)
-        逐 chunk yield 文本内容。
+        流式对话，逐 chunk yield 文本内容。
 
-        dashscope SDK 的流式调用返回同步可迭代对象，这里通过 asyncio.to_thread
-        在独立线程中逐次拉取 next()，避免阻塞事件循环，实现真正的流式输出。
+        kwargs:
+        - model: 指定模型（默认 self.llm_model）
+        - enable_search: True → 开启联网搜索增强，使用 qwen-plus + messages 格式
         """
-        model = kwargs.get("model", self.llm_model)
+        enable_search = kwargs.get("enable_search", False)
+
+        if enable_search:
+            # 联网搜索模式：使用 messages 格式 + enable_search=True
+            model = kwargs.get("model", SEARCH_MODEL)
+            call_kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "api_key": self.api_key,
+                "stream": True,
+                "incremental_output": True,
+                "result_format": "message",
+                "enable_search": True,
+                "search_options": {
+                    "search_strategy": "max",
+                    "enable_source": True,
+                },
+            }
+            extract_fn = _extract_text_message_format
+        else:
+            # 普通模式：使用 prompt 格式
+            model = kwargs.get("model", self.llm_model)
+            call_kwargs = {
+                "model": model,
+                "prompt": prompt,
+                "api_key": self.api_key,
+                "stream": True,
+                "incremental_output": True,
+            }
+            extract_fn = _extract_text_prompt_format
 
         def _make_iter():
-            """创建 dashscope 流式响应迭代器"""
-            return iter(
-                dashscope.Generation.call(
-                    model=model,
-                    prompt=prompt,
-                    api_key=self.api_key,
-                    stream=True,
-                    incremental_output=True,
-                )
-            )
+            return iter(dashscope.Generation.call(**call_kwargs))
 
         def _next_item(iterator):
-            """安全地取下一个元素，遇 StopIteration 返回哨兵"""
             try:
                 return next(iterator)
             except StopIteration:
                 return _STREAM_END
 
-        # 在线程中初始化迭代器（首次调用会建立连接）
         try:
             iterator = await asyncio.to_thread(_make_iter)
         except Exception as e:
             logger.error("DashScope chat_stream 初始化失败: %s", e)
             raise
 
-        # 逐 chunk 在线程中拉取，每个 chunk 就绪即 yield
         while True:
             response = await asyncio.to_thread(_next_item, iterator)
             if response is _STREAM_END:
                 break
-            # 流式响应中每个 response.output.text 是文本片段
-            text = getattr(getattr(response, "output", None), "text", None)
+            text = extract_fn(response)
             if text:
                 yield text
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """
-        文本向量化：调用 dashscope.TextEmbedding.call
-        从 response.output.embeddings 提取向量列表。
-        """
+        """文本向量化"""
         if not texts:
             return []
 
         def _call_embed():
-            response = dashscope.TextEmbedding.call(
+            return dashscope.TextEmbedding.call(
                 model=self.embedding_model,
                 input=texts,
                 api_key=self.api_key,
             )
-            return response
 
         try:
             response = await asyncio.to_thread(_call_embed)
@@ -92,8 +132,6 @@ class DashScopeAdapter(LLMAdapter):
             logger.error("DashScope embed 调用失败: %s", e)
             raise
 
-        # response.output.embeddings 是列表，每个元素有 .embedding 字段
-        # 兼容 dashscope SDK 不同版本：output 可能是对象或 dict
         output = getattr(response, "output", None)
         if isinstance(output, dict):
             embeddings_obj = output.get("embeddings")
@@ -105,7 +143,6 @@ class DashScopeAdapter(LLMAdapter):
 
         embeddings = []
         for item in embeddings_obj:
-            # 兼容对象属性访问与字典访问
             if isinstance(item, dict):
                 vec = item.get("embedding")
             else:

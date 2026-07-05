@@ -105,9 +105,14 @@ async def delete_document(document_id: int):
     status = doc["status"]
     file_path = doc.get("file_path")
 
-    # 1. 清理 ChromaDB 向量（同步操作放在线程中防止阻塞）
+    # 1. 清理 ChromaDB 向量（同步操作放在线程中防止阻塞，加 30s 超时防 hang）
     try:
-        await asyncio.to_thread(delete_by_document, kb_id, document_id)
+        await asyncio.wait_for(
+            asyncio.to_thread(delete_by_document, kb_id, document_id),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("清理 ChromaDB 向量超时(30s): document_id=%s", document_id)
     except Exception as e:
         logger.warning("清理 ChromaDB 向量失败: document_id=%s, error=%s", document_id, e)
 

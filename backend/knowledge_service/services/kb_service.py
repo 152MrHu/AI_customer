@@ -31,9 +31,14 @@ async def create_kb(data: dict) -> dict:
     # 插入数据库
     kb_id = await kb_repo.insert_kb(name, description)
 
-    # 创建 ChromaDB collection（同步操作放在线程中）
+    # 创建 ChromaDB collection（同步操作放在线程中，加 30s 超时）
     try:
-        await asyncio.to_thread(create_collection, kb_id)
+        await asyncio.wait_for(
+            asyncio.to_thread(create_collection, kb_id),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("ChromaDB collection 创建超时(30s): kb_id=%s", kb_id)
     except Exception as e:
         # ChromaDB 创建失败不影响数据库记录，后续入库时会重试
         logger.warning("ChromaDB collection 创建失败(kb_id=%s): %s", kb_id, e)
@@ -54,9 +59,14 @@ async def delete_kb(kb_id: int):
     if not kb:
         raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
 
-    # 1. 删除 ChromaDB collection（同步操作放在线程中）
+    # 1. 删除 ChromaDB collection（同步操作放在线程中，加 30s 超时）
     try:
-        await asyncio.to_thread(delete_collection, kb_id)
+        await asyncio.wait_for(
+            asyncio.to_thread(delete_collection, kb_id),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("ChromaDB collection 删除超时(30s): kb_id=%s", kb_id)
     except Exception as e:
         logger.warning("ChromaDB collection 删除失败(kb_id=%s): %s", kb_id, e)
 

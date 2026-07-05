@@ -1,19 +1,21 @@
 """异步入库服务：解析→切块→向量化→写ChromaDB→更新状态
 
-安全设计（v2 - 完全隔离）：
-- ingest 在独立 daemon 线程中运行，拥有自己的事件循环和数据库连接池
-- 即使 ingest 永久阻塞，也不会拖死主 FastAPI 服务
-- 每次入库有整体超时保护 (120s)
-- ChromaDB 同步操作通过 asyncio.to_thread 放到线程池执行
-- 任何步骤失败都标记 status=failed，不影响主服务
+安全设计（v3 - 主事件循环 + 多层防护）：
+- 使用 asyncio.create_task() 在主事件循环中运行（不再使用独立线程）
+- 原因：独立线程的 create_pool() 会覆盖 database.py 全局 _pool，
+  导致主线程 DB 操作拿到绑定到错误事件循环的 pool → "attached to a different loop"
+- 三层防护确保不拖死主服务：
+  1. ChromaDB 同步操作通过 asyncio.to_thread 放到线程池，且有 chroma_lock 串行化
+  2. HTTP 调用使用独立 httpx client（60s 超时）
+  3. 整体入库有 wait_for(120s) 超时保护
 """
 import asyncio
-import threading
 from pathlib import Path
 
 from common.config import settings
 from common.logging_config import get_logger
-from common.database import create_pool, close_pool, DB
+# 使用主服务的数据库连接池（同一个事件循环，不存在 loop 冲突）
+from common.database import DB
 
 from ..parser.text_parser import parse_text
 from ..parser.pdf_parser import parse_pdf
@@ -23,21 +25,11 @@ from ..parser.csv_parser import parse_csv
 from ..parser.chunker import chunk_text
 from ..vector_store import add_chunks
 from ..clients.ai_client import get_embeddings
-from ..repositories import document_repo as _doc_repo_module, kb_repo as _kb_repo_module
 
 logger = get_logger()
 
 # 入库整体超时（秒）
 INGEST_TIMEOUT = 120
-
-# 全局 ingest 线程（daemon，主进程退出时自动终止）
-_ingest_thread = None
-_ingest_loop = None
-
-
-def _get_ingest_loop():
-    """获取 ingest 线程的事件循环"""
-    return _ingest_loop
 
 
 async def _parse_document(file_path: str, file_type: str) -> str:
@@ -57,8 +49,8 @@ async def _parse_document(file_path: str, file_type: str) -> str:
 
 
 async def _do_ingest(document_id: int):
-    """实际入库逻辑（在 ingest 线程的事件循环中运行）"""
-    # 1. 获取文档信息（使用独立连接池）
+    """实际入库逻辑（在主事件循环中作为 task 运行）"""
+    # 1. 获取文档信息（使用主服务的连接池）
     async with DB() as db:
         doc = await db.fetchone(
             "SELECT document_id AS doc_id, kb_id, file_name AS doc_name, "
@@ -103,7 +95,7 @@ async def _do_ingest(document_id: int):
         file_name=doc_name,
     )
 
-    # 6. 更新状态 ready + chunk_count（使用独立连接池）
+    # 6. 更新状态 ready + chunk_count（使用主服务连接池）
     async with DB() as db:
         await db.execute(
             "UPDATE documents SET status='ready', chunk_count=%s, processed_at=NOW() WHERE document_id=%s",
@@ -138,55 +130,22 @@ async def _ingest_with_timeout(document_id: int):
             pass
 
 
-def _ingest_thread_main():
-    """ingest daemon 线程的主函数：创建独立事件循环和数据库连接池"""
-    global _ingest_loop
-    _ingest_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(_ingest_loop)
-
-    try:
-        # 在独立线程中创建数据库连接池
-        _ingest_loop.run_until_complete(create_pool())
-        logger.info("Ingest 线程: 数据库连接池已初始化")
-
-        # 线程事件循环持续运行，等待 ingest 任务
-        _ingest_loop.run_forever()
-    except Exception as e:
-        logger.error("Ingest 线程异常退出: %s", e)
-    finally:
-        # 清理
-        try:
-            _ingest_loop.run_until_complete(close_pool())
-        except Exception:
-            pass
-        _ingest_loop.close()
-        _ingest_loop = None
-
-
-def _start_ingest_thread():
-    """启动 ingest daemon 线程（如果尚未启动）"""
-    global _ingest_thread
-    if _ingest_thread is None or not _ingest_thread.is_alive():
-        _ingest_thread = threading.Thread(
-            target=_ingest_thread_main,
-            name="ingest-worker",
-            daemon=True,  # 主进程退出时自动终止
-        )
-        _ingest_thread.start()
-        logger.info("Ingest daemon 线程已启动")
-
-
 def schedule_ingest(document_id: int):
-    """调度入库任务：在 ingest 线程的事件循环中异步执行。
+    """调度入库任务：在主事件循环中创建后台 task。
 
-    与 asyncio.create_task 不同，此方法将任务提交到独立线程的事件循环，
-    确保 ingest 过程完全不占用主 FastAPI 事件循环的资源。
-    即使 ingest 挂起/阻塞，主服务仍能正常响应请求。
+    v3 改进：不再使用独立 daemon 线程。
+    原因：独立线程调用 create_pool() 会覆盖 database.py 的全局 _pool 变量，
+    导致主线程的 DB 操作使用了绑定到错误事件循环的连接池，
+    触发 "attached to a different loop" 错误。
+
+    防护措施（确保不拖死主服务）：
+    - ChromaDB 操作通过 asyncio.to_thread() 在线程池执行，且有 chroma_lock 串行化
+    - HTTP 调用(ai_client)使用独立 httpx client + 60s 超时
+    - 整体入库流程有 wait_for(120s) 超时保护
     """
-    _start_ingest_thread()
-    loop = _get_ingest_loop()
-    if loop is None:
-        logger.error("Ingest 线程事件循环不可用，无法入库: document_id=%s", document_id)
-        return
-    asyncio.run_coroutine_threadsafe(_ingest_with_timeout(document_id), loop)
-    logger.info("入库任务已提交到 ingest 线程: document_id=%s", document_id)
+    # 创建后台 task，不 await，让它在主事件循环中异步运行
+    task = asyncio.create_task(_ingest_with_timeout(document_id))
+    logger.info(
+        "入库任务已创建(主事件循环task): document_id=%s, task_id=%s",
+        document_id, id(task),
+    )

@@ -15,7 +15,7 @@ from common.http_client import create_client, close_client
 from common.logging_config import setup_logger, get_logger
 from common.exception_handlers import register_exception_handlers
 
-from .routers import knowledge_base, document
+from .routers import knowledge_base, document, vector_search
 
 setup_logger()
 logger = get_logger()
@@ -64,6 +64,7 @@ register_exception_handlers(app)
 # 挂载路由
 app.include_router(knowledge_base.router)
 app.include_router(document.router)
+app.include_router(vector_search.router)
 
 
 if __name__ == "__main__":

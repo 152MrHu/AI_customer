@@ -1,77 +1,66 @@
-"""ChromaDB 向量存储只读检索封装"""
+"""远程向量检索封装 - 通过 knowledge_service API 查询 ChromaDB
+
+避免多进程同时访问 ChromaDB PersistentClient 导致的文件锁 hang 死问题。
+只有 knowledge_service 直接操作 ChromaDB，ai_service 通过 HTTP 调用检索。
+"""
 from typing import Optional
 
+import httpx
+
+from common.config import settings
+from common.http_client import get_client
 from common.logging_config import get_logger
 
 logger = get_logger()
 
+# knowledge_service 向量检索地址
+_SEARCH_URL = f"{settings.KNOWLEDGE_SERVICE_URL}/api/knowledge/search"
+_COUNT_URL = f"{settings.KNOWLEDGE_SERVICE_URL}/api/knowledge/count"
+
 
 class VectorStore:
-    """ChromaDB 检索封装（只读）"""
+    """远程向量检索（通过 knowledge_service API）"""
 
-    def __init__(self, chroma_client):
-        self.client = chroma_client
-
-    def get_collection(self, kb_id: int):
-        """获取或创建 collection（名称 kb_{kb_id}）"""
-        collection_name = f"kb_{kb_id}"
-        collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-        return collection
-
-    def query(self, kb_id: int, query_embedding: list[float], top_k: int = 5) -> list[dict]:
+    async def query(
+        self, kb_id: int, query_embedding: list[float], top_k: int = 5
+    ) -> list[dict]:
         """
-        向量检索：
-        调用 collection.query，返回 [{"doc_name", "score", "snippet", "document"}]
-        ChromaDB distances 为余弦距离 (0~2)，score = 1 - distance
+        远程向量检索：
+        调用 knowledge_service /api/knowledge/search，
+        返回 [{"doc_name", "score", "snippet", "document"}]
         """
-        collection = self.get_collection(kb_id)
+        client = get_client()
         try:
-            results = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k,
-                include=["documents", "metadatas", "distances"],
+            resp = await client.post(
+                _SEARCH_URL,
+                json={
+                    "kb_id": kb_id,
+                    "query_embedding": query_embedding,
+                    "top_k": top_k,
+                },
+                timeout=httpx.Timeout(10.0, connect=5.0),
             )
+            data = resp.json()
+            if data.get("code") == 200:
+                return data.get("data", [])
+            return []
         except Exception as e:
-            logger.error("ChromaDB query 失败, kb_id=%s: %s", kb_id, e)
+            logger.error("远程检索失败 kb_id=%s: %s", kb_id, e)
             return []
 
-        if not results or not results.get("ids") or not results["ids"][0]:
-            return []
-
-        ids = results.get("ids", [[]])[0]
-        documents = results.get("documents", [[]])[0]
-        metadatas = results.get("metadatas", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-
-        items: list[dict] = []
-        for i in range(len(ids)):
-            distance = distances[i] if i < len(distances) else 1.0
-            # 余弦距离 0~2，转换为相似度得分
-            score = 1.0 - distance
-            meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
-            document = documents[i] if i < len(documents) else ""
-            doc_name = (
-                meta.get("file_name")
-                or meta.get("doc_name")
-                or meta.get("source")
-                or "未知文档"
-            )
-            items.append({
-                "doc_name": doc_name,
-                "score": round(score, 4),
-                "snippet": document[:200] if document else "",
-                "document": document,
-            })
-        return items
-
-    def count_collection(self, kb_id: int) -> int:
-        """返回 collection 中向量数量（判断知识库是否为空）"""
+    async def count_collection(self, kb_id: int) -> int:
+        """远程查询 collection 中向量数量"""
+        client = get_client()
         try:
-            collection = self.get_collection(kb_id)
-            return collection.count()
+            resp = await client.post(
+                _COUNT_URL,
+                json={"kb_id": kb_id},
+                timeout=httpx.Timeout(5.0, connect=3.0),
+            )
+            data = resp.json()
+            if data.get("code") == 200:
+                return data.get("data", {}).get("count", 0)
+            return 0
         except Exception as e:
-            logger.error("ChromaDB count 失败, kb_id=%s: %s", kb_id, e)
+            logger.error("远程计数失败 kb_id=%s: %s", kb_id, e)
             return 0

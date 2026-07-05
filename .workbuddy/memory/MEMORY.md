@@ -25,4 +25,6 @@
 - 2026-07-05 发现 httpx 连接池 keep-alive 死连接问题：下游服务 reload 后 gateway 等复用死连接报 5002 → 已修复（`common/http_client.py` 禁用 keep-alive）
 - 2026-07-05 发现 aiomysql 连接池泄漏：`common/database.py` 的 `DB.__aexit__` 调用 `conn.close()` 关闭物理连接但未调用 `pool.acquire().__aexit__()` → 连接永远不释放回池，约10次DB操作后池耗尽，所有后续请求 hang → 已修复（改为正确调用 `pool_ctx.__aexit__`）
 - 2026-07-05 Windows `localhost` 解析优先 IPv6 `::1`：uvicorn 绑 `0.0.0.0`（仅IPv4），httpx/aiomysql/redis 解析 localhost 优先试 `::1` → 已改 .env 和 config 所有服务地址/数据库地址为 `127.0.0.1`
+- 2026-07-05 ChromaDB 多进程锁冲突：ai_service 和 knowledge_service 同时用 PersistentClient 访问同一目录 → SQLite/WAL 文件锁 hang 死 → 已修复为**单进程架构**：只有 knowledge_service 直接操作 ChromaDB，ai_service 通过 HTTP `/api/knowledge/search|count` 远程调用
+- 2026-07-05 知识库为空时改为通用助手模式：不再返回 5003 错误，而是跳过 RAG 检索直接调 LLM 对话
 - Windows + uvicorn reload=True + TimedRotatingFileHandler 跨零点会报 WinError 32（日志轮转失败），不影响业务

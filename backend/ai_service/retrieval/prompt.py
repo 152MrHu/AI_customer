@@ -1,15 +1,29 @@
 """Prompt 模板构建器"""
 
-SYSTEM_PROMPT = """你是一个专业的AI智能客服助手。请根据以下知识库内容回答用户问题。
+SYSTEM_PROMPT_RAG = """你是一个专业的AI智能客服助手。请根据以下知识库内容回答用户问题。
 
 规则：
-1. 仅基于下方提供的知识库内容回答，不要编造信息
-2. 如果知识库中没有相关内容，请诚实告知"抱歉，知识库中暂无相关信息"
+1. 优先基于下方提供的知识库内容回答，不要编造信息
+2. 如果知识库中没有相关内容，请结合你的通用知识友好回答
 3. 回答要简洁、准确、有条理
 4. 使用中文回答
 
 知识库内容：
 {retrieved_chunks}
+
+对话历史：
+{context}
+
+用户问题：{query}"""
+
+# 知识库为空时的通用助手模式
+SYSTEM_PROMPT_GENERAL = """你是一个友好的AI智能客服助手。
+
+规则：
+1. 友好、专业地回答用户的问题
+2. 回答要简洁、准确、有条理
+3. 使用中文回答
+4. 如果用户问的是产品/业务相关问题且知识库暂无内容，可以告知"目前知识库中还没有相关资料，建议您联系人工客服获取更准确的信息"
 
 对话历史：
 {context}
@@ -46,9 +60,17 @@ def _format_context(context: list[dict]) -> str:
 
 
 def build_prompt(retrieved_chunks: list[dict], context: list[dict], query: str) -> str:
-    """组装完整 Prompt"""
-    return SYSTEM_PROMPT.format(
-        retrieved_chunks=_format_chunks(retrieved_chunks),
-        context=_format_context(context),
-        query=query,
-    )
+    """组装完整 Prompt。知识库为空时使用通用助手模式，否则使用 RAG 模式。"""
+    if retrieved_chunks:
+        # RAG 模式：有检索结果
+        return SYSTEM_PROMPT_RAG.format(
+            retrieved_chunks=_format_chunks(retrieved_chunks),
+            context=_format_context(context),
+            query=query,
+        )
+    else:
+        # 通用助手模式：知识库为空或无检索结果
+        return SYSTEM_PROMPT_GENERAL.format(
+            context=_format_context(context),
+            query=query,
+        )

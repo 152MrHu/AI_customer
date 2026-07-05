@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Input, Button, List, Typography, Popconfirm, Empty, Spin, Segmented, theme } from 'antd'
+import { Input, Button, List, Typography, Popconfirm, Empty, Spin, Segmented, Select, theme } from 'antd'
 import {
   PlusOutlined,
   SearchOutlined,
@@ -21,6 +21,9 @@ export default function SessionList({
   onDelete,
   createMode,
   onModeChange,
+  knowledgeBases = [],
+  selectedKbId,
+  onKbChange,
 }) {
   const [keyword, setKeyword] = useState('')
   const { token: themeToken } = theme.useToken()
@@ -49,6 +52,24 @@ export default function SessionList({
           ]}
           style={{ marginBottom: 12 }}
         />
+        {/* 知识库选择器：kb 模式下显示 */}
+        {createMode === 'kb' && knowledgeBases.length > 0 && (
+          <Select
+            style={{ width: '100%', marginBottom: 12 }}
+            value={selectedKbId}
+            onChange={onKbChange}
+            placeholder="选择知识库"
+            options={knowledgeBases.map((kb) => ({
+              label: kb.name || kb.kb_name || `知识库 #${kb.kb_id || kb.id}`,
+              value: kb.kb_id || kb.id,
+            }))}
+          />
+        )}
+        {createMode === 'kb' && knowledgeBases.length === 0 && (
+          <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12, textAlign: 'center' }}>
+            暂无知��库，请先创建
+          </Text>
+        )}
         <Button
           type="primary"
           icon={<PlusOutlined />}

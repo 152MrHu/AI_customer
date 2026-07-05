@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Typography, Empty, message, theme, Segmented } from 'antd'
+import { Layout, Typography, Empty, message, theme, Segmented, Select } from 'antd'
 import { RobotOutlined, BookOutlined, GlobalOutlined } from '@ant-design/icons'
 import MainLayout from '../layouts/MainLayout'
 import SessionList from '../components/chat/SessionList'
 import MessageList from '../components/chat/MessageList'
 import MessageInput from '../components/chat/MessageInput'
 import { chatApi } from '../api/chat'
+import { knowledgeApi } from '../api/knowledge'
 import { streamChat } from '../api/sse'
 
 const { Sider, Content } = Layout
@@ -23,6 +24,8 @@ export default function Chat() {
   const [streaming, setStreaming] = useState(false)
   const [sessionDetail, setSessionDetail] = useState(null)
   const [createMode, setCreateMode] = useState('kb')
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [selectedKbId, setSelectedKbId] = useState(null)
   const streamAbortRef = useRef(false)
   const { token: themeToken } = theme.useToken()
 
@@ -41,9 +44,26 @@ export default function Chat() {
     }
   }, [])
 
+  // 加载知识库列表
+  const loadKnowledgeBases = useCallback(async () => {
+    try {
+      const data = await knowledgeApi.listKbs({ page: 1, page_size: 50 })
+      const list = data.items || []
+      setKnowledgeBases(list)
+      // 默认选中第一个知识库
+      if (list.length > 0 && selectedKbId === null) {
+        setSelectedKbId(list[0].kb_id || list[0].id)
+      }
+    } catch (e) {
+      // 静默失败，知识库列表加载失败不影响对话
+      console.error('加载知识库列表失败:', e)
+    }
+  }, [])
+
   useEffect(() => {
     loadSessions()
-  }, [loadSessions])
+    loadKnowledgeBases()
+  }, [loadSessions, loadKnowledgeBases])
 
   const loadSessionDetail = useCallback(async (sessionId) => {
     setMessagesLoading(true)
@@ -76,8 +96,14 @@ export default function Chat() {
   )
 
   const handleCreateSession = useCallback(async () => {
+    // kb 模式下必须选择知识库
+    const kbId = createMode === 'kb' ? selectedKbId : null
+    if (createMode === 'kb' && !kbId) {
+      message.warning('请先选择知识库')
+      return
+    }
     try {
-      const data = await chatApi.createSession(null, createMode)
+      const data = await chatApi.createSession(kbId, createMode)
       const newSession = {
         session_id: data.session_id,
         title: data.title,
@@ -94,7 +120,7 @@ export default function Chat() {
     } catch (e) {
       message.error(e.message || '创建会话失败')
     }
-  }, [createMode])
+  }, [createMode, selectedKbId])
 
   const handleDeleteSession = useCallback(
     async (sessionId) => {
@@ -197,6 +223,9 @@ export default function Chat() {
             onDelete={handleDeleteSession}
             createMode={createMode}
             onModeChange={setCreateMode}
+            knowledgeBases={knowledgeBases}
+            selectedKbId={selectedKbId}
+            onKbChange={setSelectedKbId}
           />
         </Sider>
         <Content style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

@@ -16,7 +16,8 @@
 - Redis 已作为本地进程运行（redis-server.exe），但 cli 不在 PATH
 
 ### 配置坑
-- `backend/common/config.py` 的 `env_file=".env"` 是相对路径，必须在 `backend/` 目录下运行命令，.env 放 backend 根目录
+- `backend/common/config.py` 已改为绝对路径（2026-07-05 18:23 修复），`CHROMA_PERSIST_PATH` / `UPLOAD_DIR` / `env_file` 都基于 `Path(__file__).resolve()` 计算绝对路径，**可以从任意目录启动服务**，不再限定在 `backend/` 目录
+- 向量数据库文件：`E:\Z_myfile\ai_customer_service\chroma_data\vec_store.db`
 - README 说 admin 脚本在 `scripts/init/`，实际在 `scripts/` 平铺
 
 ### 架构特点
@@ -37,4 +38,5 @@
 - 2026-07-05 知识库为空时改为通用助手模式
 - 2026-07-05 `add_chunks()` 失败时不抛异常 → ingest 继续标记 "ready" → 已修复（返回 bool + ingest 检查）
 - 2026-07-05 `chroma_worker.py` 的 `_do_add_chunks()` 用 `get_collection()` → collection 不存在时崩溃 → 已改 `get_or_create_collection()`
+- 2026-07-05 **CHROMA_PERSIST_PATH 相对路径导致数据库分裂**：从不同工作目录启动服务指向不同 vec_store.db → 已改为绝对路径（`_PROJECT_ROOT` 基于 `Path(__file__).resolve()` 计算）
 - Windows + uvicorn reload=True + TimedRotatingFileHandler 跨零点会报 WinError 32，不影响业务

@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
+# 项目根目录（backend/ 的父目录），确保所有相对路径以此为基准
+# 无论从哪个目录启动服务，都使用同一个绝对路径
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class Settings(BaseSettings):
     # MySQL
@@ -28,11 +32,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen-turbo"
     EMBEDDING_MODEL: str = "text-embedding-v3"
 
-    # ChromaDB
-    CHROMA_PERSIST_PATH: str = "./chroma_data"
+    # ChromaDB / 向量数据（使用绝对路径，确保不同工作目录启动时一致）
+    CHROMA_PERSIST_PATH: str = str(_PROJECT_ROOT / "chroma_data")
 
-    # 文件上传
-    UPLOAD_DIR: str = "./uploads"
+    # 文件上传（使用绝对路径）
+    UPLOAD_DIR: str = str(_PROJECT_ROOT / "uploads")
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
@@ -70,7 +74,8 @@ class Settings(BaseSettings):
         return str(p.resolve())
 
     class Config:
-        env_file = ".env"
+        # .env 文件在 backend/ 目录下，使用绝对路径避免工作目录问题
+        env_file = str(_PROJECT_ROOT / "backend" / ".env")
         env_file_encoding = "utf-8"
 
 

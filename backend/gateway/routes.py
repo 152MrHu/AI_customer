@@ -34,6 +34,15 @@ def is_admin_path(path: str) -> bool:
     return path.startswith("/api/knowledge")
 
 
+def is_upload_path(path: str, method: str) -> bool:
+    """是否为文件上传接口（需要更长的转发超时）"""
+    return (
+        path.startswith("/api/knowledge/bases/")
+        and path.endswith("/documents")
+        and method == "POST"
+    )
+
+
 def is_rate_limited(path: str, method: str) -> bool:
     """AI 问答接口需要限流：POST /api/chat/sessions/{id}/messages"""
     return (

@@ -1,7 +1,9 @@
 """ChromaDB 向量存储封装（写入/删除）
 
-knowledge-service 负责写入，ai-service 负责读取，共用同一持久化目录。
+knowledge-service 负责写入，ai-service 负责读取（通过 HTTP 远程调用）。
+ChromaDB 使用 PersistentClient，在 Windows 上需要注意 SQLite 文件锁问题。
 """
+import time
 import chromadb
 
 from common.config import settings
@@ -10,13 +12,21 @@ from common.logging_config import get_logger
 logger = get_logger()
 
 _client = None
+_INIT_TIMEOUT = 10  # ChromaDB 初始化超时（秒）
 
 
 def get_client():
-    """获取 ChromaDB 持久化客户端（单例）"""
+    """获取 ChromaDB 持久化客户端（单例），带超时保护"""
     global _client
     if _client is None:
-        _client = chromadb.PersistentClient(path=settings.chroma_path)
+        try:
+            start = time.time()
+            _client = chromadb.PersistentClient(path=settings.chroma_path)
+            elapsed = time.time() - start
+            logger.info("ChromaDB 客户端初始化完成, 耗时=%.2f秒", elapsed)
+        except Exception as e:
+            logger.error("ChromaDB 客户端初始化失败: %s", e)
+            raise
     return _client
 
 

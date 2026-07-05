@@ -7,7 +7,7 @@ from common.logging_config import get_logger
 from common.response import ErrorCode
 from ..adapter.base import LLMAdapter
 from ..retrieval.vector_store import VectorStore
-from ..retrieval.prompt import build_prompt
+from ..retrieval.prompt import build_prompt, build_messages
 from ..utils.sse import token_frame, sources_frame, done_frame, error_frame
 from ..schemas.chat import RagChatRequest
 
@@ -47,11 +47,16 @@ async def rag_chat(
     if mode == "assistant":
         logger.info("通用助手模式: kb_id=%s, query=%s", kb_id, query[:50])
         context_dicts = [msg.model_dump() for msg in request.context]
-        prompt = build_prompt([], context_dicts, query, mode="assistant")
+
+        # 使用 messages 格式（system + 对话历史 + user 分离）
+        # DashScope 的 enable_search 基于 user message 内容搜索，
+        # 所以必须把用户问题单独作为 user message，而非嵌入长 prompt
+        messages = build_messages([], context_dicts, query, mode="assistant")
 
         try:
             stream = _aiter_with_overall_timeout(
-                adapter.chat_stream(prompt, enable_search=True), config.AI_TIMEOUT
+                adapter.chat_stream(messages=messages, enable_search=True),
+                config.AI_TIMEOUT,
             )
             async for token in stream:
                 yield token_frame(token)

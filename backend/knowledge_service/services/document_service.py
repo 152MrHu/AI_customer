@@ -17,7 +17,7 @@ from . import ingest_service
 logger = get_logger()
 
 # 支持的文件格式
-ALLOWED_EXTENSIONS = {"txt", "pdf", "docx"}
+ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "md", "csv"}
 # 文件大小限制 20MB
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
@@ -39,7 +39,7 @@ async def upload_document(kb_id: int, file: UploadFile, upload_dir: Path) -> dic
     file_name = file.filename or ""
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
     if ext not in ALLOWED_EXTENSIONS:
-        raise BusinessError(ErrorCode.DOC_FORMAT_UNSUPPORTED, "仅支持 pdf/txt/docx 格式")
+        raise BusinessError(ErrorCode.DOC_FORMAT_UNSUPPORTED, "仅支持 pdf/txt/docx/md/csv 格式")
 
     # 读取文件内容并校验大小
     content = await file.read()
@@ -105,9 +105,9 @@ async def delete_document(document_id: int):
     status = doc["status"]
     file_path = doc.get("file_path")
 
-    # 1. 清理 ChromaDB 向量
+    # 1. 清理 ChromaDB 向量（同步操作放在线程中防止阻塞）
     try:
-        delete_by_document(kb_id, document_id)
+        await asyncio.to_thread(delete_by_document, kb_id, document_id)
     except Exception as e:
         logger.warning("清理 ChromaDB 向量失败: document_id=%s, error=%s", document_id, e)
 

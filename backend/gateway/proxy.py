@@ -7,7 +7,7 @@ from common.http_client import get_client
 from common.response import error_response
 from common.logging_config import get_logger
 
-from gateway.routes import match_target, is_sse_path
+from gateway.routes import match_target, is_sse_path, is_upload_path
 
 router = APIRouter()
 logger = get_logger()
@@ -25,6 +25,9 @@ HOP_BY_HOP_RESP = {
     "connection", "keep-alive", "proxy-authenticate",
     "proxy-authorization", "te", "trailers", "upgrade",
 }
+
+# 文件上传超时（比普通请求长）
+UPLOAD_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 
 @router.api_route(
@@ -88,6 +91,10 @@ async def proxy(request: Request, path: str):
             },
         )
 
+    # 文件上传转发（使用更长的超时）
+    is_upload = is_upload_path(full_path, request.method)
+    request_timeout = UPLOAD_TIMEOUT if is_upload else None
+
     # 普通 HTTP 转发
     try:
         resp = await client.request(
@@ -95,6 +102,7 @@ async def proxy(request: Request, path: str):
             content=body,
             headers=headers,
             params=query_params,
+            timeout=request_timeout,
         )
     except httpx.RequestError as e:
         logger.error("转发请求异常: %s %s, err=%s", request.method, target, e)

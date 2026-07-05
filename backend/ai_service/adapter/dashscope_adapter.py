@@ -52,22 +52,36 @@ class DashScopeAdapter(LLMAdapter):
         if api_key:
             dashscope.api_key = api_key
 
-    async def chat_stream(self, prompt: str, **kwargs) -> AsyncGenerator[str, None]:
+    async def chat_stream(
+        self,
+        prompt: str = None,
+        messages: list = None,
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
         """
         流式对话，逐 chunk yield 文本内容。
 
+        参数二选一：
+        - prompt: 单条文本 prompt（普通模式，使用 prompt 格式调用）
+        - messages: 消息列表 [{"role": "system/user/assistant", "content": "..."}]
+                     （联网搜索模式必须用此格式，enable_search 基于 user message 搜索）
+
         kwargs:
-        - model: 指定模型（默认 self.llm_model）
-        - enable_search: True → 开启联网搜索增强，使用 qwen-plus + messages 格式
+        - model: 指定模型（默认 self.llm_model 或 SEARCH_MODEL）
+        - enable_search: True → 开启联网搜索增强
         """
         enable_search = kwargs.get("enable_search", False)
 
         if enable_search:
-            # 联网搜索模式：使用 messages 格式 + enable_search=True
+            # 联网搜索模式：必须使用 messages 格式 + enable_search=True
+            # DashScope 的搜索基于最后一条 user message 的内容，所以必须 system/user 分离
             model = kwargs.get("model", SEARCH_MODEL)
+            call_messages = messages or [
+                {"role": "user", "content": prompt or ""},
+            ]
             call_kwargs = {
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": call_messages,
                 "api_key": self.api_key,
                 "stream": True,
                 "incremental_output": True,
@@ -80,16 +94,27 @@ class DashScopeAdapter(LLMAdapter):
             }
             extract_fn = _extract_text_message_format
         else:
-            # 普通模式：使用 prompt 格式
+            # 普通模式：支持 prompt 或 messages 格式
             model = kwargs.get("model", self.llm_model)
-            call_kwargs = {
-                "model": model,
-                "prompt": prompt,
-                "api_key": self.api_key,
-                "stream": True,
-                "incremental_output": True,
-            }
-            extract_fn = _extract_text_prompt_format
+            if messages:
+                call_kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "api_key": self.api_key,
+                    "stream": True,
+                    "incremental_output": True,
+                    "result_format": "message",
+                }
+                extract_fn = _extract_text_message_format
+            else:
+                call_kwargs = {
+                    "model": model,
+                    "prompt": prompt or "",
+                    "api_key": self.api_key,
+                    "stream": True,
+                    "incremental_output": True,
+                }
+                extract_fn = _extract_text_prompt_format
 
         def _make_iter():
             return iter(dashscope.Generation.call(**call_kwargs))

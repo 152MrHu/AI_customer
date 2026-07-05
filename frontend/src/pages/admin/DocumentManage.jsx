@@ -224,7 +224,7 @@ export default function DocumentManage() {
       >
         {kbId ? (
           <Dragger
-            accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+            accept=".pdf,.docx,.txt,.md,.csv"
             multiple={false}
             showUploadList={false}
             beforeUpload={handleUpload}
@@ -238,7 +238,7 @@ export default function DocumentManage() {
               {uploading ? '上传中...' : '点击或拖拽文件到此区域上传'}
             </p>
             <p className="ant-upload-hint">
-              支持 PDF、Word、TXT、Markdown、CSV、Excel 等格式
+              支持 PDF、Word、TXT、Markdown、CSV 等格式
             </p>
           </Dragger>
         ) : (

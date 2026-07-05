@@ -6,6 +6,8 @@ from ..repositories import document_repo, kb_repo
 from ..parser.text_parser import parse_text
 from ..parser.pdf_parser import parse_pdf
 from ..parser.docx_parser import parse_docx
+from ..parser.md_parser import parse_md
+from ..parser.csv_parser import parse_csv
 from ..parser.chunker import chunk_text
 from ..vector_store import add_chunks
 from ..clients.ai_client import get_embeddings
@@ -21,6 +23,10 @@ async def _parse_document(file_path: str, file_type: str) -> str:
         return await parse_pdf(file_path)
     elif file_type == "docx":
         return await parse_docx(file_path)
+    elif file_type == "md":
+        return await parse_md(file_path)
+    elif file_type == "csv":
+        return await parse_csv(file_path)
     else:
         raise ValueError(f"不支持的文件类型: {file_type}")
 
@@ -54,8 +60,10 @@ async def ingest(document_id: int):
         # 4. 调用 ai-service 向量化
         embeddings = await get_embeddings(chunks, doc["kb_id"])
 
-        # 5. 写 ChromaDB
-        add_chunks(
+        # 5. 写 ChromaDB（同步操作，放在线程中执行防止阻塞事件循环）
+        import asyncio
+        await asyncio.to_thread(
+            add_chunks,
             kb_id=doc["kb_id"],
             chunks=chunks,
             embeddings=embeddings,

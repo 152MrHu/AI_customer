@@ -24,7 +24,8 @@ async def insert_document(
 async def find_by_id(document_id: int) -> Optional[dict]:
     """按 ID 查询文档"""
     return await fetchone(
-        "SELECT document_id, kb_id, file_name, file_type, file_size, file_path, "
+        "SELECT document_id AS doc_id, kb_id, file_name AS doc_name, "
+        "file_type AS doc_type, file_size, file_path, "
         "status, chunk_count, created_at, processed_at "
         "FROM documents WHERE document_id = %s",
         (document_id,),
@@ -34,7 +35,8 @@ async def find_by_id(document_id: int) -> Optional[dict]:
 async def find_by_name(kb_id: int, file_name: str) -> Optional[dict]:
     """查询同知识库内是否存在同名文件"""
     return await fetchone(
-        "SELECT document_id, kb_id, file_name, file_type, file_size, file_path, "
+        "SELECT document_id AS doc_id, kb_id, file_name AS doc_name, "
+        "file_type AS doc_type, file_size, file_path, "
         "status, chunk_count, created_at, processed_at "
         "FROM documents WHERE kb_id = %s AND file_name = %s",
         (kb_id, file_name),
@@ -50,7 +52,8 @@ async def list_documents(
 ) -> list[dict]:
     """分页查询文档列表（支持关键词和状态过滤）"""
     sql = (
-        "SELECT document_id, kb_id, file_name, file_type, file_size, file_path, "
+        "SELECT document_id AS doc_id, kb_id, file_name AS doc_name, "
+        "file_type AS doc_type, file_size, file_path, "
         "status, chunk_count, created_at, processed_at "
         "FROM documents WHERE kb_id = %s"
     )

@@ -40,10 +40,10 @@ async def ingest(document_id: int):
             logger.error("文档不存在: document_id=%s", document_id)
             return
 
-        logger.info("开始入库: document_id=%s, file=%s", document_id, doc["file_name"])
+        logger.info("开始入库: document_id=%s, file=%s", document_id, doc.get("doc_name") or doc.get("file_name"))
 
         # 2. 按类型解析文本
-        text = await _parse_document(doc["file_path"], doc["file_type"])
+        text = await _parse_document(doc["file_path"], doc.get("doc_type") or doc.get("file_type"))
 
         # 3. 切块
         chunks = chunk_text(text, settings.CHUNK_SIZE, settings.CHUNK_OVERLAP)
@@ -67,8 +67,8 @@ async def ingest(document_id: int):
             kb_id=doc["kb_id"],
             chunks=chunks,
             embeddings=embeddings,
-            document_id=doc["document_id"],
-            file_name=doc["file_name"],
+            document_id=doc.get("doc_id") or doc.get("document_id", document_id),
+            file_name=doc.get("doc_name") or doc.get("file_name"),
         )
 
         # 6. 更新状态 ready

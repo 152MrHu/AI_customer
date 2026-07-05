@@ -140,42 +140,54 @@ class DashScopeAdapter(LLMAdapter):
                 yield text
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """文本向量化"""
+        """文本向量化（自动分批，DashScope 限制每批最多 25 条）"""
         if not texts:
             return []
 
-        def _call_embed():
-            return dashscope.TextEmbedding.call(
-                model=self.embedding_model,
-                input=texts,
-                api_key=self.api_key,
-            )
+        # DashScope text-embedding-v3 单次请求最多 25 条文本
+        BATCH_SIZE = 25
 
-        try:
-            response = await asyncio.to_thread(_call_embed)
-        except Exception as e:
-            logger.error("DashScope embed 调用失败: %s", e)
-            raise
+        all_embeddings = []
+        for batch_start in range(0, len(texts), BATCH_SIZE):
+            batch = texts[batch_start:batch_start + BATCH_SIZE]
+            logger.debug("Embedding 分批: %d/%d, 本批 %d 条",
+                         batch_start // BATCH_SIZE + 1,
+                         (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE,
+                         len(batch))
 
-        output = getattr(response, "output", None)
-        if isinstance(output, dict):
-            embeddings_obj = output.get("embeddings")
-        else:
-            embeddings_obj = getattr(output, "embeddings", None)
-        if not embeddings_obj:
-            logger.error("DashScope embed 返回为空: %s", response)
-            raise RuntimeError("向量化服务返回空结果")
+            def _call_embed(batch_texts=batch):
+                return dashscope.TextEmbedding.call(
+                    model=self.embedding_model,
+                    input=batch_texts,
+                    api_key=self.api_key,
+                )
 
-        embeddings = []
-        for item in embeddings_obj:
-            if isinstance(item, dict):
-                vec = item.get("embedding")
+            try:
+                response = await asyncio.to_thread(_call_embed)
+            except Exception as e:
+                logger.error("DashScope embed 调用失败(批次%d): %s",
+                             batch_start // BATCH_SIZE + 1, e)
+                raise
+
+            output = getattr(response, "output", None)
+            if isinstance(output, dict):
+                embeddings_obj = output.get("embeddings")
             else:
-                vec = getattr(item, "embedding", None)
-            if vec:
-                embeddings.append(list(vec))
+                embeddings_obj = getattr(output, "embeddings", None)
+            if not embeddings_obj:
+                logger.error("DashScope embed 返回为空(批次%d): %s",
+                             batch_start // BATCH_SIZE + 1, response)
+                raise RuntimeError(f"向量化服务返回空结果(批次{batch_start // BATCH_SIZE + 1})")
 
-        if not embeddings:
+            for item in embeddings_obj:
+                if isinstance(item, dict):
+                    vec = item.get("embedding")
+                else:
+                    vec = getattr(item, "embedding", None)
+                if vec:
+                    all_embeddings.append(list(vec))
+
+        if not all_embeddings:
             raise RuntimeError("未能从向量化响应中提取到向量")
 
-        return embeddings
+        return all_embeddings

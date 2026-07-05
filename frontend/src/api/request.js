@@ -4,7 +4,12 @@ const BASE = import.meta.env.VITE_API_BASE || ''
 
 async function request(url, options = {}) {
   const token = getToken()
-  const headers = { 'Content-Type': 'application/json', ...options.headers }
+  // FormData 时由浏览器自动设置 Content-Type (multipart/form-data; boundary=...)
+  // 不手动指定，否则后端无法正确解析文件字段
+  const isFormData = options.body instanceof FormData
+  const headers = isFormData
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const resp = await fetch(`${BASE}${url}`, { ...options, headers })
@@ -38,5 +43,5 @@ export const http = {
   post: (url, body) => request(url, { method: 'POST', body: JSON.stringify(body) }),
   put: (url, body) => request(url, { method: 'PUT', body: JSON.stringify(body) }),
   delete: (url) => request(url, { method: 'DELETE' }),
-  upload: (url, formData) => request(url, { method: 'POST', body: formData, headers: {} }),
+  upload: (url, formData) => request(url, { method: 'POST', body: formData }),
 }

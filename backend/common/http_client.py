@@ -8,7 +8,11 @@ _client: Optional[httpx.AsyncClient] = None
 
 async def create_client():
     global _client
-    _client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
+    # 禁用 keep-alive，每次请求新建连接，彻底避免下游服务重启后复用死连接的问题
+    _client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=5.0),
+        limits=httpx.Limits(max_keepalive_connections=0),
+    )
     return _client
 
 

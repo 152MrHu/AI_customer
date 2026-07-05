@@ -21,3 +21,6 @@
 
 ### 历史问题
 - 2026-07-03 首跑遇到 "query 向量化超时"，疑 DashScope 网络或额度
+- 2026-07-05 发现 DashScope SDK 1.26.2 的 `response.output` 返回 dict 不是对象，`ai_service/adapter/dashscope_adapter.py` 的属性访问会失败 → 已修复（兼容 dict）
+- 2026-07-05 发现 httpx 连接池 keep-alive 死连接问题：下游服务 reload 后 gateway 等复用死连接报 5002 → 已修复（`common/http_client.py` 禁用 keep-alive）
+- Windows + uvicorn reload=True + TimedRotatingFileHandler 跨零点会报 WinError 32（日志轮转失败），不影响业务

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     MYSQL_HOST: str = "localhost"
     MYSQL_PORT: int = 3306
     MYSQL_USER: str = "root"
-    MYSQL_PASSWORD: str = ""
+    MYSQL_PASSWORD: str = "1234"
     MYSQL_DATABASE: str = "ai_customer_service"
 
     # Redis

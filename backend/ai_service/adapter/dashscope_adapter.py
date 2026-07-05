@@ -93,7 +93,12 @@ class DashScopeAdapter(LLMAdapter):
             raise
 
         # response.output.embeddings 是列表，每个元素有 .embedding 字段
-        embeddings_obj = getattr(getattr(response, "output", None), "embeddings", None)
+        # 兼容 dashscope SDK 不同版本：output 可能是对象或 dict
+        output = getattr(response, "output", None)
+        if isinstance(output, dict):
+            embeddings_obj = output.get("embeddings")
+        else:
+            embeddings_obj = getattr(output, "embeddings", None)
         if not embeddings_obj:
             logger.error("DashScope embed 返回为空: %s", response)
             raise RuntimeError("向量化服务返回空结果")

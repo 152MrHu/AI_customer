@@ -12,7 +12,7 @@ from common.pagination import PageParams
 
 from ..repositories import document_repo, kb_repo
 from ..vector_store import delete_by_document
-from . import ingest_service
+from .ingest_service import schedule_ingest
 
 logger = get_logger()
 
@@ -67,8 +67,8 @@ async def upload_document(kb_id: int, file: UploadFile, upload_dir: Path) -> dic
         file_path=str(file_path),
     )
 
-    # 触发异步入库（不阻塞响应）
-    asyncio.create_task(ingest_service.ingest(document_id))
+    # 触发异步入库（在独立 daemon 线程中执行，不阻塞主服务）
+    schedule_ingest(document_id)
     logger.info("文档已上传，异步入库已触发: document_id=%s", document_id)
 
     # 返回文档信息

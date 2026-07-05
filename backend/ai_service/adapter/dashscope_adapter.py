@@ -140,12 +140,12 @@ class DashScopeAdapter(LLMAdapter):
                 yield text
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """文本向量化（自动分批，DashScope 限制每批最多 25 条）"""
+        """文本向量化（自动分批，DashScope 限制每批最多 10 条）"""
         if not texts:
             return []
 
-        # DashScope text-embedding-v3 单次请求最多 25 条文本
-        BATCH_SIZE = 25
+        # DashScope text-embedding-v3 单次请求最多 10 条文本
+        BATCH_SIZE = 10
 
         all_embeddings = []
         for batch_start in range(0, len(texts), BATCH_SIZE):

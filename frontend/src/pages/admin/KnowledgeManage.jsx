@@ -10,8 +10,9 @@ import {
   Typography,
   message,
   Tag,
+  Popconfirm,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, FileTextOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { knowledgeApi } from '../../api/knowledge'
 import { formatTime } from '../../utils/format'
@@ -63,6 +64,16 @@ export default function KnowledgeManage() {
     }
   }
 
+  const handleDelete = async (kbId, kbName) => {
+    try {
+      await knowledgeApi.deleteKb(kbId)
+      message.success(`知识库「${kbName}」已删除`)
+      loadData()
+    } catch (e) {
+      message.error(e.message || '删除失败')
+    }
+  }
+
   const columns = [
     {
       title: '名称',
@@ -95,15 +106,29 @@ export default function KnowledgeManage() {
     {
       title: '操作',
       key: 'action',
-      width: 140,
+      width: 200,
       render: (_, record) => (
-        <Button
-          type="link"
-          icon={<FileTextOutlined />}
-          onClick={() => navigate(`/admin/documents?kb_id=${record.kb_id}`)}
-        >
-          管理文档
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            icon={<FileTextOutlined />}
+            onClick={() => navigate(`/admin/documents?kb_id=${record.kb_id}`)}
+          >
+            管理文档
+          </Button>
+          <Popconfirm
+            title="确认删除"
+            description={`删除知识库「${record.name}」将同时删除所有文档和向量数据，此操作不可撤销！`}
+            onConfirm={() => handleDelete(record.kb_id, record.name)}
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]

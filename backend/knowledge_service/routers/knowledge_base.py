@@ -34,3 +34,13 @@ async def list_kbs(
         page=page_params.page,
         page_size=page_params.page_size,
     )
+
+
+@router.delete("/bases/{kb_id}")
+async def delete_kb(
+    kb_id: int,
+    user: dict = Depends(require_admin),
+):
+    """删除知识库（管理员）- 同时删除所有文档和 ChromaDB 数据"""
+    await kb_service.delete_kb(kb_id)
+    return success_response(message="知识库已删除")

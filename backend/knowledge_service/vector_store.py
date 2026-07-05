@@ -81,3 +81,14 @@ def delete_by_document(kb_id: int, document_id: int):
         "ChromaDB 删除完成: kb_%s, document_id=%s",
         kb_id, document_id,
     )
+
+
+def delete_collection(kb_id: int):
+    """删除整个知识库的 collection"""
+    client = get_client()
+    try:
+        client.delete_collection(name=f"kb_{kb_id}")
+        logger.info("ChromaDB collection 已删除: kb_%s", kb_id)
+    except Exception as e:
+        # collection 不存在也没关系
+        logger.warning("ChromaDB 删除 collection 失败(可能不存在): kb_%s, %s", kb_id, e)

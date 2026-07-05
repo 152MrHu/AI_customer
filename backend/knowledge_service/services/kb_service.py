@@ -1,13 +1,15 @@
 """知识库服务"""
 import asyncio
+from pathlib import Path
 
+from common.config import settings
 from common.response import ErrorCode
 from common.exceptions import BusinessError
 from common.pagination import PageParams
 from common.logging_config import get_logger
 
-from ..repositories import kb_repo
-from ..vector_store import create_collection
+from ..repositories import kb_repo, document_repo
+from ..vector_store import create_collection, delete_collection
 
 logger = get_logger()
 
@@ -39,6 +41,53 @@ async def create_kb(data: dict) -> dict:
     # 返回完整信息
     kb = await kb_repo.find_by_id(kb_id)
     return kb
+
+
+async def delete_kb(kb_id: int):
+    """删除知识库：
+    1. 删除 ChromaDB collection（放在线程中）
+    2. 删除所有文档数据库记录
+    3. 删除所有物理文件
+    4. 删除知识库数据库记录
+    """
+    kb = await kb_repo.find_by_id(kb_id)
+    if not kb:
+        raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
+
+    # 1. 删除 ChromaDB collection（同步操作放在线程中）
+    try:
+        await asyncio.to_thread(delete_collection, kb_id)
+    except Exception as e:
+        logger.warning("ChromaDB collection 删除失败(kb_id=%s): %s", kb_id, e)
+
+    # 2. 获取所有文档记录（用于删除物理文件）
+    docs = await document_repo.list_documents(kb_id, None, None, 0, 1000)
+
+    # 3. 删除所有文档数据库记录
+    from common.database import execute
+    await execute("DELETE FROM documents WHERE kb_id = %s", (kb_id,))
+
+    # 4. 删除物理文件和上传目录
+    upload_dir = Path(settings.upload_dir_path) / f"kb_{kb_id}"
+    if upload_dir.exists():
+        try:
+            # 删除目录下所有文件
+            for doc in (docs or []):
+                file_path = doc.get("file_path")
+                if file_path:
+                    try:
+                        Path(file_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            # 删除整个目录
+            import shutil
+            shutil.rmtree(upload_dir, ignore_errors=True)
+        except Exception as e:
+            logger.warning("删除上传目录失败: %s, %s", upload_dir, e)
+
+    # 5. 删除知识库数据库记录
+    await kb_repo.delete_kb(kb_id)
+    logger.info("知识库已删除: kb_id=%s, name=%s", kb_id, kb.get("name"))
 
 
 async def list_kbs(page_params: PageParams) -> dict:

@@ -54,3 +54,12 @@ async def update_document_count(kb_id: int, delta: int) -> int:
             "UPDATE knowledge_bases SET document_count = document_count + %s WHERE kb_id = %s",
             (delta, kb_id),
         )
+
+
+async def delete_kb(kb_id: int) -> int:
+    """删除知识库记录"""
+    async with DB() as db:
+        return await db.execute(
+            "DELETE FROM knowledge_bases WHERE kb_id = %s",
+            (kb_id,),
+        )

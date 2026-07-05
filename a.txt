@@ -1,0 +1,6 @@
+cd /d E:\Z_myfile\ai_customer_service\backend
+E:\Z_myfile\ai_customer_service\.venv\Scripts\python.exe -m user_service.main
+E:\Z_myfile\ai_customer_service\.venv\Scripts\python.exe -m chat_service.main
+E:\Z_myfile\ai_customer_service\.venv\Scripts\python.exe -m knowledge_service.main
+E:\Z_myfile\ai_customer_service\.venv\Scripts\python.exe -m ai_service.main
+E:\Z_myfile\ai_customer_service\.venv\Scripts\python.exe -m gateway.main

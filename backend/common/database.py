@@ -39,23 +39,30 @@ def get_pool() -> aiomysql.Pool:
 
 
 class DB:
-    """数据库操作上下文管理器"""
+    """数据库操作上下文管理器
+
+    正确使用 aiomysql 连接池：acquire() 返回的上下文管理器
+    必须在 __aexit__ 中也被 exit，否则连接永远不释放回池，
+    导致池耗尽后所有新请求 hang 死。
+    """
 
     def __init__(self):
+        self._pool_ctx = None   # acquire() 返回的上下文管理器
         self.conn = None
         self.cur = None
 
     async def __aenter__(self):
-        self.conn = get_pool().acquire()
-        self.conn = await self.conn.__aenter__()
+        pool = get_pool()
+        self._pool_ctx = pool.acquire()          # 拿到 _PoolAcquireContextManager
+        self.conn = await self._pool_ctx.__aenter__()  # enter → 从池中获取连接
         self.cur = await self.conn.cursor()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.cur:
             await self.cur.close()
-        if self.conn:
-            self.conn.close()
+        if self._pool_ctx:
+            await self._pool_ctx.__aexit__(exc_type, exc_val, exc_tb)  # 正确释放回池
 
     async def execute(self, sql: str, args: tuple = None) -> int:
         """执行 INSERT/UPDATE/DELETE，返回 affected rows"""

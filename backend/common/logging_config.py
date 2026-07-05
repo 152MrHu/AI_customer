@@ -1,5 +1,6 @@
 """统一日志配置"""
 import logging
+import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from common.config import settings
@@ -19,7 +20,7 @@ def setup_logger(name: str = "app") -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     # 控制台
-    console = logging.StreamHandler()
+    console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -27,8 +28,9 @@ def setup_logger(name: str = "app") -> logging.Logger:
     logger.addHandler(console)
 
     # 文件（按天滚动，保留 30 天）
+    # 每个服务单独一个日志文件，避免多进程共用同一文件导致 Windows 文件锁冲突
     file_handler = TimedRotatingFileHandler(
-        log_dir / "app.log",
+        log_dir / f"{name}.log",
         when="midnight",
         interval=1,
         backupCount=30,

@@ -23,4 +23,6 @@
 - 2026-07-03 首跑遇到 "query 向量化超时"，疑 DashScope 网络或额度
 - 2026-07-05 发现 DashScope SDK 1.26.2 的 `response.output` 返回 dict 不是对象，`ai_service/adapter/dashscope_adapter.py` 的属性访问会失败 → 已修复（兼容 dict）
 - 2026-07-05 发现 httpx 连接池 keep-alive 死连接问题：下游服务 reload 后 gateway 等复用死连接报 5002 → 已修复（`common/http_client.py` 禁用 keep-alive）
+- 2026-07-05 发现 aiomysql 连接池泄漏：`common/database.py` 的 `DB.__aexit__` 调用 `conn.close()` 关闭物理连接但未调用 `pool.acquire().__aexit__()` → 连接永远不释放回池，约10次DB操作后池耗尽，所有后续请求 hang → 已修复（改为正确调用 `pool_ctx.__aexit__`）
+- 2026-07-05 Windows `localhost` 解析优先 IPv6 `::1`：uvicorn 绑 `0.0.0.0`（仅IPv4），httpx/aiomysql/redis 解析 localhost 优先试 `::1` → 已改 .env 和 config 所有服务地址/数据库地址为 `127.0.0.1`
 - Windows + uvicorn reload=True + TimedRotatingFileHandler 跨零点会报 WinError 32（日志轮转失败），不影响业务

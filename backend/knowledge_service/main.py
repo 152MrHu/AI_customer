@@ -38,6 +38,23 @@ async def lifespan(app: FastAPI):
     upload_dir = settings.upload_dir_path
     logger.info("上传目录: %s", upload_dir)
 
+    # 自动重试所有 pending/failed 文档
+    from .services.ingest_service import schedule_ingest
+    from common.database import DB
+    try:
+        async with DB() as db:
+            stuck_docs = await db.fetchall(
+                "SELECT document_id FROM documents WHERE status IN ('pending', 'failed')"
+            )
+        if stuck_docs:
+            logger.info("发现 %d 条 pending/failed 文档，自动重试入库", len(stuck_docs))
+            for doc in stuck_docs:
+                schedule_ingest(doc["document_id"])
+        else:
+            logger.info("无 pending/failed 文档需要重试")
+    except Exception as e:
+        logger.warning("自动重试入库失败: %s", e)
+
     logger.info("Knowledge Service 启动完成，监听端口 8003")
     yield
 

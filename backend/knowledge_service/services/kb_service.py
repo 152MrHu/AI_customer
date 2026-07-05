@@ -1,5 +1,4 @@
 """知识库服务"""
-import asyncio
 from pathlib import Path
 
 from common.config import settings
@@ -31,17 +30,8 @@ async def create_kb(data: dict) -> dict:
     # 插入数据库
     kb_id = await kb_repo.insert_kb(name, description)
 
-    # 创建 ChromaDB collection（同步操作放在线程中，加 30s 超时）
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(create_collection, kb_id),
-            timeout=30.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("ChromaDB collection 创建超时(30s): kb_id=%s", kb_id)
-    except Exception as e:
-        # ChromaDB 创建失败不影响数据库记录，后续入库时会重试
-        logger.warning("ChromaDB collection 创建失败(kb_id=%s): %s", kb_id, e)
+    # 创建向量存储 collection（SQLite 自动创建，始终成功）
+    create_collection(kb_id)
 
     # 返回完整信息
     kb = await kb_repo.find_by_id(kb_id)
@@ -59,16 +49,8 @@ async def delete_kb(kb_id: int):
     if not kb:
         raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
 
-    # 1. 删除 ChromaDB collection（同步操作放在线程中，加 30s 超时）
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(delete_collection, kb_id),
-            timeout=30.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("ChromaDB collection 删除超时(30s): kb_id=%s", kb_id)
-    except Exception as e:
-        logger.warning("ChromaDB collection 删除失败(kb_id=%s): %s", kb_id, e)
+    # 1. 删除向量存储 collection（SQLite DELETE，不会 segfault）
+    delete_collection(kb_id)
 
     # 2. 获取所有文档记录（用于删除物理文件）
     docs = await document_repo.list_documents(kb_id, None, None, 0, 1000)

@@ -1,122 +1,73 @@
-"""ChromaDB 向量存储封装（子进程隔离版 v4）
+"""轻量级向量存储 - SQLite + numpy 替代 ChromaDB
 
-彻底解决 ChromaDB 在 Windows 上 hang 死主进程的问题：
-- 所有 ChromaDB 操作都在**独立子进程**中执行
-- 通过 subprocess.run() 调用 chroma_worker.py
-- 带 timeout 自动终止 hang 的子进程
-- 主进程完全不 import chromadb，不创建 PersistentClient
+彻底解决 ChromaDB 1.x Rust 后端在 Python 3.13 + Windows 上的段错误问题。
 
-knowledge-service 负责写入/读取，ai-service 通过 HTTP 远程调用。
+设计原则：
+- 所有向量数据存储在 SQLite 中（JSON 序列化 embeddings）
+- 使用 numpy 计算余弦相似度（纯 Python/预编译 wheel，无 segfault 风险）
+- 不依赖任何 Rust/C++ native 库（chromadb/hnswlib 都有兼容问题）
+- 接口与原 vector_store.py 保持一致，上层代码无需修改
+
+存储结构（SQLite 表 vec_chunks）：
+- kb_id INTEGER       知识库 ID
+- document_id INTEGER 文档 ID
+- chunk_index INTEGER 切块索引
+- file_name TEXT      文件名
+- chunk_text TEXT     切块文本内容
+- embedding TEXT      JSON 序列化的 embedding 向量（list[float]）
 """
 import json
-import os
-import subprocess
-import sys
-import tempfile
+import sqlite3
+import numpy as np
+from pathlib import Path
 
 from common.config import settings
 from common.logging_config import get_logger
 
 logger = get_logger()
 
-# 子进程操作超时（秒）
-_SUBPROCESS_TIMEOUT = 30
+# SQLite 数据库路径
+_DB_PATH = Path(settings.CHROMA_PERSIST_PATH) / "vec_store.db"
+
+# 确保目录存在
+_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _get_backend_dir() -> str:
-    """获取 backend 目录的绝对路径（chroma_worker.py 需要 import common）"""
-    # vector_store.py 在 backend/knowledge_service/ 下，backend 是其父目录
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _get_conn() -> sqlite3.Connection:
+    """获取 SQLite 连接"""
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
 
-def _get_worker_script() -> str:
-    """获取 chroma_worker.py 的绝对路径"""
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "chroma_worker.py")
-
-
-def _subprocess_env() -> dict:
-    """子进程环境变量：添加 backend 目录到 PYTHONPATH，确保能 import common"""
-    backend_dir = _get_backend_dir()
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    existing_path = env.get("PYTHONPATH", "")
-    if backend_dir not in existing_path:
-        env["PYTHONPATH"] = f"{backend_dir};{existing_path}" if existing_path else backend_dir
-    return env
-
-
-def _run_worker(args: list, timeout: float = _SUBPROCESS_TIMEOUT) -> bool:
-    """在子进程中运行 ChromaDB 写入/删除操作，返回是否成功"""
-    worker = _get_worker_script()
-    cmd = [sys.executable, worker] + args
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=_get_backend_dir(),
-            env=_subprocess_env(),
+def _ensure_table(conn: sqlite3.Connection):
+    """确保 vec_chunks 表存在"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vec_chunks (
+            kb_id INTEGER NOT NULL,
+            document_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            chunk_text TEXT NOT NULL,
+            embedding TEXT NOT NULL,
+            PRIMARY KEY (kb_id, document_id, chunk_index)
         )
-        if result.returncode == 0:
-            return True
-        else:
-            stderr = (result.stderr or "").strip()
-            logger.warning(
-                "ChromaDB 子进程返回非零: cmd=%s, rc=%s, stderr=%s",
-                " ".join(cmd), result.returncode, stderr[:500],
-            )
-            return False
-    except subprocess.TimeoutExpired:
-        logger.error("ChromaDB 子进程超时(%ds): cmd=%s", timeout, " ".join(cmd))
-        return False
-    except Exception as e:
-        logger.error("ChromaDB 子进程异常: cmd=%s, error=%s", " ".join(cmd), e)
-        return False
+    """)
+    conn.commit()
 
 
-def _run_worker_with_result(args: list, timeout: float = _SUBPROCESS_TIMEOUT) -> dict | None:
-    """在子进程中运行 ChromaDB 读取操作，解析 stdout JSON 返回结果"""
-    worker = _get_worker_script()
-    cmd = [sys.executable, worker] + args
+def create_collection(kb_id: int) -> bool:
+    """创建知识库 collection（SQLite 中自动创建，始终成功）
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=_get_backend_dir(),
-            env=_subprocess_env(),
-        )
-        if result.returncode == 0 and result.stdout:
-            try:
-                return json.loads(result.stdout.strip())
-            except json.JSONDecodeError:
-                logger.warning("ChromaDB 子进程输出无法解析为 JSON: %s", result.stdout[:200])
-                return None
-        else:
-            stderr = (result.stderr or "").strip()
-            logger.warning(
-                "ChromaDB 子进程读取失败: cmd=%s, rc=%s, stderr=%s",
-                " ".join(cmd), result.returncode, stderr[:500],
-            )
-            return None
-    except subprocess.TimeoutExpired:
-        logger.error("ChromaDB 子进程读取超时(%ds): cmd=%s", timeout, " ".join(cmd))
-        return None
-    except Exception as e:
-        logger.error("ChromaDB 子进程读取异常: cmd=%s, error=%s", " ".join(cmd), e)
-        return None
-
-
-def create_collection(kb_id: int):
-    """创建知识库 collection（子进程中执行）"""
-    ok = _run_worker(["create_collection", str(kb_id)])
-    if ok:
-        logger.info("ChromaDB collection 已创建: kb_%s", kb_id)
-    else:
-        logger.warning("ChromaDB collection 创建失败: kb_%s", kb_id)
+    在纯 SQLite 方案中不需要单独创建 collection，
+    数据插入时表会自动创建。此函数保留接口兼容性。
+    """
+    conn = _get_conn()
+    _ensure_table(conn)
+    conn.close()
+    logger.info("向量存储 collection 就绪: kb_%s", kb_id)
+    return True
 
 
 def add_chunks(
@@ -125,91 +76,155 @@ def add_chunks(
     embeddings: list[list[float]],
     document_id: int,
     file_name: str,
-):
-    """写入向量数据（子进程中执行）
+) -> bool:
+    """写入向量数据到 SQLite
 
-    将 chunks 和 embeddings 序列化为临时 JSON 文件传给子进程，
-    避免命令行参数过长的问题。
+    Args:
+        kb_id: 知识库 ID
+        chunks: 切块文本列表
+        embeddings: 对应的 embedding 向量列表
+        document_id: 文档 ID
+        file_name: 文件名
+
+    Returns: True=成功, False=失败
     """
-    data = {
-        "chunks": chunks,
-        "embeddings": embeddings,
-        "document_id": document_id,
-        "file_name": file_name,
-    }
+    if len(chunks) != len(embeddings):
+        logger.error(
+            "chunks 数量(%d)与 embeddings 数量(%d)不匹配: kb_%s, doc_%s",
+            len(chunks), len(embeddings), kb_id, document_id,
+        )
+        return False
 
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="chroma_")
+    conn = _get_conn()
+    _ensure_table(conn)
+
     try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+        rows = []
+        for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+            rows.append((kb_id, document_id, i, file_name, chunk, json.dumps(emb)))
 
-        timeout = max(_SUBPROCESS_TIMEOUT, min(60.0, len(chunks) * 3))
-        ok = _run_worker(["add", str(kb_id), tmp_path], timeout=timeout)
-
-        if ok:
-            logger.info(
-                "ChromaDB 写入完成: kb_%s, document_id=%s, chunks=%d",
-                kb_id, document_id, len(chunks),
-            )
-        else:
-            logger.error(
-                "ChromaDB 写入失败: kb_%s, document_id=%s",
-                kb_id, document_id,
-            )
+        conn.executemany(
+            "INSERT OR REPLACE INTO vec_chunks (kb_id, document_id, chunk_index, file_name, chunk_text, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        logger.info(
+            "向量写入完成: kb_%s, document_id=%s, chunks=%d",
+            kb_id, document_id, len(chunks),
+        )
+        return True
+    except Exception as e:
+        logger.error("向量写入失败: kb_%s, document_id=%s, error=%s", kb_id, document_id, e)
+        conn.rollback()
+        return False
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        conn.close()
 
 
-def delete_by_document(kb_id: int, document_id: int):
-    """按文档 ID 删除向量（子进程中执行）"""
-    ok = _run_worker(["delete_by_doc", str(kb_id), str(document_id)])
-    if ok:
-        logger.info("ChromaDB 删除完成: kb_%s, document_id=%s", kb_id, document_id)
-    else:
-        logger.warning("ChromaDB 删除失败(非致命): kb_%s, document_id=%s", kb_id, document_id)
+def delete_by_document(kb_id: int, document_id: int) -> bool:
+    """按文档 ID 删除向量数据"""
+    conn = _get_conn()
+    try:
+        n = conn.execute(
+            "DELETE FROM vec_chunks WHERE kb_id=? AND document_id=?",
+            (kb_id, document_id),
+        ).rowcount
+        conn.commit()
+        logger.info("向量删除完成: kb_%s, document_id=%s, deleted=%d", kb_id, document_id, n)
+        return True
+    except Exception as e:
+        logger.warning("向量删除失败: kb_%s, document_id=%s, error=%s", kb_id, document_id, e)
+        return False
+    finally:
+        conn.close()
 
 
-def delete_collection(kb_id: int):
-    """删除整个知识库的 collection（子进程中执行）"""
-    ok = _run_worker(["delete_collection", str(kb_id)])
-    if ok:
-        logger.info("ChromaDB collection 已删除: kb_%s", kb_id)
-    else:
-        logger.warning("ChromaDB collection 删除失败: kb_%s", kb_id)
+def delete_collection(kb_id: int) -> bool:
+    """删除整个知识库的向量数据"""
+    conn = _get_conn()
+    try:
+        n = conn.execute("DELETE FROM vec_chunks WHERE kb_id=?", (kb_id,)).rowcount
+        conn.commit()
+        logger.info("向量 collection 删除完成: kb_%s, deleted=%d", kb_id, n)
+        return True
+    except Exception as e:
+        logger.warning("向量 collection 删除失败: kb_%s, error=%s", kb_id, e)
+        return False
+    finally:
+        conn.close()
 
 
 def search(kb_id: int, query_embedding: list[float], top_k: int = 5) -> list[dict]:
-    """向量检索（子进程中执行），返回检索结果列表"""
-    data = {
-        "kb_id": kb_id,
-        "query_embedding": query_embedding,
-        "top_k": top_k,
-    }
+    """向量检索：使用 numpy 余弦相似度
 
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="chroma_search_")
+    Args:
+        kb_id: 知识库 ID
+        query_embedding: 查询向量
+        top_k: 返回结果数量
+
+    Returns: [{"doc_name", "score", "snippet", "document"}]
+    """
+    conn = _get_conn()
+    _ensure_table(conn)
+
     try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+        rows = conn.execute(
+            "SELECT document_id, chunk_index, file_name, chunk_text, embedding "
+            "FROM vec_chunks WHERE kb_id=?",
+            (kb_id,),
+        ).fetchall()
 
-        result = _run_worker_with_result(["search", tmp_path], timeout=_SUBPROCESS_TIMEOUT)
+        if not rows:
+            return []
 
-        if result and result.get("status") == "ok":
-            return result.get("items", [])
+        # 将查询向量转为 numpy 数组
+        query_vec = np.array(query_embedding, dtype=np.float32)
+        query_norm = np.linalg.norm(query_vec)
+
+        if query_norm == 0:
+            return []
+
+        # 计算所有候选向量的余弦相似度
+        candidates = []
+        for row in rows:
+            doc_id, chunk_idx, file_name, chunk_text, emb_json = row
+            emb_vec = np.array(json.loads(emb_json), dtype=np.float32)
+            emb_norm = np.linalg.norm(emb_vec)
+            if emb_norm == 0:
+                continue
+            score = float(np.dot(query_vec, emb_vec) / (query_norm * emb_norm))
+            candidates.append({
+                "doc_name": file_name,
+                "score": round(score, 4),
+                "snippet": chunk_text[:200] if chunk_text else "",
+                "document": chunk_text,
+                "document_id": doc_id,
+                "chunk_index": chunk_idx,
+            })
+
+        # 按相似度排序，取 top_k
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates[:top_k]
+
+    except Exception as e:
+        logger.error("向量检索失败: kb_%s, error=%s", kb_id, e)
         return []
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        conn.close()
 
 
 def count(kb_id: int) -> int:
-    """查询向量数量（子进程中执行）"""
-    result = _run_worker_with_result(["count", str(kb_id)], timeout=_SUBPROCESS_TIMEOUT)
-
-    if result and result.get("status") == "ok":
-        return result.get("count", 0)
-    return 0
+    """查询向量数量"""
+    conn = _get_conn()
+    _ensure_table(conn)
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM vec_chunks WHERE kb_id=?",
+            (kb_id,),
+        ).fetchone()[0]
+        return n
+    except Exception:
+        return 0
+    finally:
+        conn.close()

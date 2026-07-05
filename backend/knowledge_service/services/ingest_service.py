@@ -1,11 +1,11 @@
-"""异步入库服务：解析→切块→向量化→写ChromaDB→更新状态
+"""异步入库服务：解析→切块→向量化→写向量存储→更新状态
 
-安全设计（v3 - 主事件循环 + 多层防护）：
-- 使用 asyncio.create_task() 在主事件循环中运行（不再使用独立线程）
-- 原因：独立线程的 create_pool() 会覆盖 database.py 全局 _pool，
-  导致主线程 DB 操作拿到绑定到错误事件循环的 pool → "attached to a different loop"
+安全设计（v5 - SQLite + numpy 向量存储）：
+- 使用 asyncio.create_task() 在主事件循环中运行
+- 向量存储改用 SQLite + numpy（纯 Python 实现，无 Rust/C++ 依赖）
+  不会 segfault，不需要 subprocess 隔离
 - 三层防护确保不拖死主服务：
-  1. ChromaDB 同步操作通过 asyncio.to_thread 放到线程池，且有 chroma_lock 串行化
+  1. 向量写入检查返回值，失败时标记为 failed
   2. HTTP 调用使用独立 httpx client（60s 超时）
   3. 整体入库有 wait_for(120s) 超时保护
 """
@@ -85,15 +85,20 @@ async def _do_ingest(document_id: int):
     # 4. 调用 ai-service 向量化
     embeddings = await get_embeddings(chunks, doc["kb_id"])
 
-    # 5. 写 ChromaDB（同步操作，放在线程中执行防止阻塞事件循环）
-    await asyncio.to_thread(
-        add_chunks,
+    # 5. 写向量存储（SQLite + numpy，不会 segfault）
+    ok = add_chunks(
         kb_id=doc["kb_id"],
         chunks=chunks,
         embeddings=embeddings,
         document_id=doc.get("doc_id") or doc.get("document_id", document_id),
         file_name=doc_name,
     )
+    if not ok:
+        # 向量写入失败 → 标记为 failed，不继续更新 ready 状态
+        logger.error("ChromaDB 写入失败，文档标记为 failed: document_id=%s", document_id)
+        async with DB() as db:
+            await db.execute("UPDATE documents SET status='failed' WHERE document_id=%s", (document_id,))
+        return
 
     # 6. 更新状态 ready + chunk_count（使用主服务连接池）
     async with DB() as db:

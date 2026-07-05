@@ -49,7 +49,12 @@ def _do_add_chunks(kb_id: int, data: dict):
     file_name = data["file_name"]
 
     client = _get_client()
-    collection = client.get_collection(name=f"kb_{kb_id}")
+    # 使用 get_or_create_collection：如果 collection 不存在则自动创建
+    # （chroma_data 目录重建后，旧 collection 会丢失，需要自动恢复）
+    collection = client.get_or_create_collection(
+        name=f"kb_{kb_id}",
+        metadata={"hnsw:space": "cosine"},
+    )
 
     ids = [f"{document_id}_{i}" for i in range(len(chunks))]
     metadatas = [

@@ -1,5 +1,4 @@
 """文档服务"""
-import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -93,18 +92,17 @@ async def list_documents(
 async def delete_document(document_id: int):
     """删除文档：
 
-    重要：只有 status == 'ready' 的文档才清理 ChromaDB 向量，
+    重要：只有 status == 'ready' 的文档才清理向量数据，
     因为 pending/failed 状态的文档从未成功写入过向量数据。
-    尝试删除不存在的向量会导致 ChromaDB hang 死整个服务。
 
     删除步骤（ready 文档）：
-    1. 清理 ChromaDB 向量（带锁超时 + 操作超时）
+    1. 清理向量数据（SQLite + numpy，不会 segfault）
     2. 删除数据库记录
     3. 更新知识库 document_count - 1
     4. 删除物理文件
 
     删除步骤（非 ready 文档）：
-    1. 跳过 ChromaDB（无向量数据）
+    1. 跳过向量清理（无向量数据）
     2. 删除数据库记录
     3. 删除物理文件
     """
@@ -116,20 +114,12 @@ async def delete_document(document_id: int):
     status = doc["status"]
     file_path = doc.get("file_path")
 
-    # 1. 仅当文档状态为 ready 时才清理 ChromaDB 向量
+    # 1. 仅当文档状态为 ready 时才清理向量数据
     if status == "ready":
-        try:
-            await asyncio.wait_for(
-                asyncio.to_thread(delete_by_document, kb_id, document_id),
-                timeout=30.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("清理 ChromaDB 向量超时(30s): document_id=%s", document_id)
-        except Exception as e:
-            logger.warning("清理 ChromaDB 向量失败: document_id=%s, error=%s", document_id, e)
+        delete_by_document(kb_id, document_id)
     else:
         logger.info(
-            "跳过 ChromaDB 向量清理(文档状态为 %s): document_id=%s",
+            "跳过向量数据清理(文档状态为 %s): document_id=%s",
             status, document_id,
         )
 

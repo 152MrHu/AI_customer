@@ -4,9 +4,9 @@ from typing import AsyncGenerator
 
 from common.logging_config import get_logger
 
-from chat_service.repositories import session_repo, message_repo
+from chat_service.repositories import session_repo, message_repo, handoff_repo
 from chat_service.clients.ai_client import call_ai_chat, parse_sse_line
-from chat_service.clients.sse import (
+from common.sse import (
     token_frame,
     sources_frame,
     done_frame,
@@ -40,6 +40,16 @@ async def send_message(
         yield error_frame(3002, "消息内容为空")
         return
 
+    # 基础安全检查：拒绝明显恶意内容
+    if len(content) > 2000:
+        yield error_frame(3002, "消息内容过长")
+        return
+
+    # 检测简单的重复字符攻击
+    if len(set(content)) == 1 and len(content) > 50:
+        yield error_frame(3002, "消息内容无效")
+        return
+
     # 3. 保存用户消息
     await message_repo.insert_message(session_id, "user", content)
 
@@ -48,14 +58,23 @@ async def send_message(
         new_title = content.strip()[:20]
         await session_repo.update_title(session_id, new_title)
 
-    # 5. 加载最近 10 轮上下文
+    # 5. 检查是否有活跃的人工客服工单（claimed 状态）
+    #    如果有，跳过 AI，消息直接送达客服
+    active_ticket = await handoff_repo.find_claimed_by_session(session_id)
+    if active_ticket:
+        logger.info("会话已有客服处理中，跳过AI: session_id=%s", session_id)
+        yield token_frame("（已转接人工客服，您的消息已发送，请等待客服回复）")
+        yield done_frame()
+        return
+
+    # 6. 加载最近 10 轮上下文
     context_rows = await message_repo.find_recent_context(session_id, 20)
     context = [
         {"role": r["role"], "content": r["content"]}
         for r in context_rows
     ]
 
-    # 6. 调用 ai-service SSE 流式
+    # 7. 调用 ai-service SSE 流式
     kb_id = session.get("kb_id") or 1
     mode = session.get("mode", "kb")
     full_response = ""
@@ -115,3 +134,44 @@ async def send_message(
             )
         await session_repo.update_timestamp(session_id)
         yield error_frame(5002, "AI服务暂时不可用，请稍后重试")
+
+
+async def send_agent_message(
+    session_id: int, agent_id: int, content: str
+) -> AsyncGenerator[str, None]:
+    """
+    客服发送消息：
+    1. 校验会话存在
+    2. 校验客服已认领该会话的转接工单
+    3. 校验消息内容
+    4. 保存消息（role=assistant）
+    5. 返回 SSE token + done 帧
+    """
+    # 1. 校验会话存在
+    session = await session_repo.find_by_id(session_id)
+    if not session:
+        yield error_frame(3001, "会话不存在")
+        return
+
+    # 2. 校验客服已认领该会话的转接工单
+    ticket = await handoff_repo.find_claimed_by_session_and_user(session_id, agent_id)
+    if not ticket:
+        yield error_frame(403, "未认领该会话的转接工单或工单已处理")
+        return
+
+    # 3. 校验消息内容
+    if not content or not content.strip():
+        yield error_frame(3002, "消息内容为空")
+        return
+
+    if len(content) > 2000:
+        yield error_frame(3002, "消息内容过长")
+        return
+
+    # 4. 保存消息（role=assistant）
+    message_id = await message_repo.insert_message(session_id, "assistant", content)
+    await session_repo.update_timestamp(session_id)
+
+    # 5. 返回 SSE 帧
+    yield token_frame(content)
+    yield done_frame(message_id)

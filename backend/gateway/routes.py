@@ -44,18 +44,32 @@ def is_upload_path(path: str, method: str) -> bool:
 
 
 def is_rate_limited(path: str, method: str) -> bool:
-    """AI 问答接口需要限流：POST /api/chat/sessions/{id}/messages"""
-    return (
-        path.startswith("/api/chat/sessions/")
-        and path.endswith("/messages")
-        and method == "POST"
-    )
+    """以下接口需要限流：
+    - AI 问答：POST /api/chat/sessions/{id}/messages
+    - 登录：POST /api/user/login
+    - 注册：POST /api/user/register
+    - 知识库文档上传：POST /api/knowledge/bases/{id}/documents
+    """
+    if method != "POST":
+        return False
+    # AI 问答接口
+    if path.startswith("/api/chat/sessions/") and path.endswith("/messages"):
+        return True
+    # 登录 + 注册
+    if path in ("/api/user/login", "/api/user/register"):
+        return True
+    # 文档上传
+    if path.startswith("/api/knowledge/bases/") and path.endswith("/documents"):
+        return True
+    return False
 
 
 def is_sse_path(path: str, method: str) -> bool:
     """是否为 SSE 流式接口（需要流式转发）"""
-    return (
-        path.startswith("/api/chat/sessions/")
-        and path.endswith("/messages")
-        and method == "POST"
-    )
+    if method != "POST":
+        return False
+    if path.startswith("/api/chat/sessions/") and path.endswith("/messages"):
+        return True
+    if path.startswith("/api/chat/sessions/") and path.endswith("/agent-message"):
+        return True
+    return False

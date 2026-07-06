@@ -2,8 +2,8 @@ import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
-export default function ProtectedRoute({ children, requireAdmin = false }) {
-  const { token, user, isAdmin } = useAuth()
+export default function ProtectedRoute({ children, requireAdmin = false, requireAgent = false }) {
+  const { token, user, isAdmin, isAgent } = useAuth()
   const location = useLocation()
 
   if (!token) {
@@ -11,6 +11,10 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
   }
 
   if (requireAdmin && !isAdmin) {
+    return <Navigate to="/chat" replace />
+  }
+
+  if (requireAgent && !isAgent) {
     return <Navigate to="/chat" replace />
   }
 

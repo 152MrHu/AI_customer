@@ -39,3 +39,8 @@ export function isAdmin() {
   const u = getUser()
   return u?.role === 'admin'
 }
+
+export function isAgent() {
+  const u = getUser()
+  return u?.role === 'agent' || u?.role === 'admin'
+}

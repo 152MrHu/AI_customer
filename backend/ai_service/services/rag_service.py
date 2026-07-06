@@ -6,9 +6,9 @@ from common.config import settings
 from common.logging_config import get_logger
 from common.response import ErrorCode
 from ..adapter.base import LLMAdapter
-from ..retrieval.vector_store import VectorStore
-from ..retrieval.prompt import build_prompt, build_messages
-from ..utils.sse import token_frame, sources_frame, done_frame, error_frame
+from ..retrieval.vector_store import VectorStore, VectorStoreError
+from ..retrieval.prompt import build_prompt, build_messages, sanitize_query
+from common.sse import token_frame, sources_frame, done_frame, error_frame
 from ..schemas.chat import RagChatRequest
 
 logger = get_logger()
@@ -42,6 +42,14 @@ async def rag_chat(
     mode = request.mode
     kb_id = request.knowledge_base_id
     query = request.query
+
+    # ===== 输入安全清洗（防 Prompt 注入） =====
+    try:
+        query = sanitize_query(query)
+    except ValueError as e:
+        logger.warning("查询被拒绝: kb_id=%s, reason=%s", kb_id, e)
+        yield error_frame(ErrorCode.PARAM_ERROR, str(e))
+        return
 
     # ===== assistant 模式：直接走 LLM（带搜索增强） =====
     if mode == "assistant":

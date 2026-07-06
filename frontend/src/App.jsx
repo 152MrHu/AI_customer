@@ -5,10 +5,14 @@ import ProtectedRoute from './components/common/ProtectedRoute'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Chat from './pages/Chat'
+import Profile from './pages/Profile'
 import AdminLayout from './layouts/AdminLayout'
 import KnowledgeManage from './pages/admin/KnowledgeManage'
 import DocumentManage from './pages/admin/DocumentManage'
 import UserManage from './pages/admin/UserManage'
+import AgentLayout from './layouts/AgentLayout'
+import AgentWorkspace from './pages/agent/AgentWorkspace'
+import AgentChat from './pages/agent/AgentChat'
 
 function RootRedirect() {
   const { token } = useAuth()
@@ -30,6 +34,14 @@ export default function App() {
         }
       />
       <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/admin"
         element={
           <ProtectedRoute requireAdmin>
@@ -42,6 +54,25 @@ export default function App() {
         <Route path="users" element={<UserManage />} />
         <Route index element={<Navigate to="knowledge" replace />} />
       </Route>
+      <Route
+        path="/agent"
+        element={
+          <ProtectedRoute requireAgent>
+            <AgentLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<AgentWorkspace />} />
+        <Route path="my" element={<AgentWorkspace />} />
+      </Route>
+      <Route
+        path="/agent/chat/:sessionId"
+        element={
+          <ProtectedRoute requireAgent>
+            <AgentChat />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

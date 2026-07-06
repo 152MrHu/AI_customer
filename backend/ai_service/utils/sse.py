@@ -1,4 +1,7 @@
-"""SSE (Server-Sent Events) 帧序列化辅助工具"""
+"""SSE (Server-Sent Events) 帧序列化辅助工具
+
+# DEPRECATED: 请使用 common.sse 模块中的相同函数
+"""
 import json
 from typing import List, Optional
 

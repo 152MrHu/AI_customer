@@ -11,12 +11,25 @@ import {
   Tag,
   Switch,
   Popconfirm,
+  Modal,
+  Form,
 } from 'antd'
-import { ReloadOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons'
+import {
+  ReloadOutlined,
+  SearchOutlined,
+  DeleteOutlined,
+  UserAddOutlined,
+} from '@ant-design/icons'
 import { userApi } from '../../api/user'
 import { formatTime } from '../../utils/format'
 
 const { Title, Text } = Typography
+
+const ROLE_MAP = {
+  admin: { label: '管理员', color: 'purple' },
+  agent: { label: '客服', color: 'blue' },
+  user: { label: '普通用户', color: 'default' },
+}
 
 export default function UserManage() {
   const [data, setData] = useState([])
@@ -26,6 +39,12 @@ export default function UserManage() {
   const [pageSize, setPageSize] = useState(10)
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState(undefined)
+  const [roleFilter, setRoleFilter] = useState(undefined)
+
+  // 创建客服弹窗
+  const [agentModalOpen, setAgentModalOpen] = useState(false)
+  const [agentForm] = Form.useForm()
+  const [creatingAgent, setCreatingAgent] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -35,6 +54,7 @@ export default function UserManage() {
       if (statusFilter !== undefined && statusFilter !== null) {
         params.status = statusFilter
       }
+      if (roleFilter) params.role = roleFilter
       const res = await userApi.list(params)
       setData(res.items || [])
       setTotal(res.total || 0)
@@ -43,7 +63,7 @@ export default function UserManage() {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, keyword, statusFilter])
+  }, [page, pageSize, keyword, statusFilter, roleFilter])
 
   useEffect(() => {
     loadData()
@@ -62,6 +82,18 @@ export default function UserManage() {
     }
   }
 
+  const handleRoleChange = async (userId, newRole) => {
+    try {
+      await userApi.updateRole(userId, newRole)
+      message.success('角色已更新')
+      setData((prev) =>
+        prev.map((u) => (u.user_id === userId ? { ...u, role: newRole } : u))
+      )
+    } catch (e) {
+      message.error(e.message || '更新角色失败')
+    }
+  }
+
   const handleDelete = async (userId) => {
     try {
       await userApi.delete(userId)
@@ -69,6 +101,21 @@ export default function UserManage() {
       loadData()
     } catch (e) {
       message.error(e.message || '删除失败')
+    }
+  }
+
+  const handleCreateAgent = async (values) => {
+    setCreatingAgent(true)
+    try {
+      await userApi.createAgent(values)
+      message.success(`客服账号 ${values.username} 创建成功`)
+      setAgentModalOpen(false)
+      agentForm.resetFields()
+      loadData()
+    } catch (e) {
+      message.error(e.message || '创建客服失败')
+    } finally {
+      setCreatingAgent(false)
     }
   }
 
@@ -97,12 +144,23 @@ export default function UserManage() {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
-      width: 100,
-      render: (role) => (
-        <Tag color={role === 'admin' ? 'purple' : 'default'}>
-          {role === 'admin' ? '管理员' : '普通用户'}
-        </Tag>
-      ),
+      width: 130,
+      render: (role, record) => {
+        const info = ROLE_MAP[role] || ROLE_MAP.user
+        return (
+          <Select
+            size="small"
+            value={role}
+            style={{ width: 110 }}
+            onChange={(newRole) => handleRoleChange(record.user_id, newRole)}
+            options={[
+              { label: '普通用户', value: 'user' },
+              { label: '客服', value: 'agent' },
+              { label: '管理员', value: 'admin' },
+            ]}
+          />
+        )
+      },
     },
     {
       title: '状态',
@@ -154,9 +212,18 @@ export default function UserManage() {
         </Title>
       }
       extra={
-        <Button icon={<ReloadOutlined />} onClick={loadData}>
-          刷新
-        </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<UserAddOutlined />}
+            onClick={() => setAgentModalOpen(true)}
+          >
+            创建客服
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={loadData}>
+            刷新
+          </Button>
+        </Space>
       }
     >
       <Space style={{ marginBottom: 16 }} wrap>
@@ -175,7 +242,7 @@ export default function UserManage() {
         <Select
           allowClear
           placeholder="状态筛选"
-          style={{ width: 140 }}
+          style={{ width: 120 }}
           value={statusFilter}
           onChange={(v) => {
             setStatusFilter(v)
@@ -184,6 +251,21 @@ export default function UserManage() {
           options={[
             { label: '启用', value: 1 },
             { label: '禁用', value: 0 },
+          ]}
+        />
+        <Select
+          allowClear
+          placeholder="角色筛选"
+          style={{ width: 120 }}
+          value={roleFilter}
+          onChange={(v) => {
+            setRoleFilter(v)
+            setPage(1)
+          }}
+          options={[
+            { label: '管理员', value: 'admin' },
+            { label: '客服', value: 'agent' },
+            { label: '普通用户', value: 'user' },
           ]}
         />
         <Button type="primary" onClick={loadData}>
@@ -209,6 +291,82 @@ export default function UserManage() {
           },
         }}
       />
+
+      {/* 创建客服 Modal */}
+      <Modal
+        title="创建客服账号"
+        open={agentModalOpen}
+        onCancel={() => {
+          setAgentModalOpen(false)
+          agentForm.resetFields()
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form
+          form={agentForm}
+          layout="vertical"
+          onFinish={handleCreateAgent}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { pattern: /^[a-zA-Z0-9_]{3,20}$/, message: '3-20位字母/数字/下划线' },
+            ]}
+          >
+            <Input placeholder="客服登录账号" maxLength={20} />
+          </Form.Item>
+          <Form.Item
+            name="phone"
+            label="手机号"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的11位手机号' },
+            ]}
+          >
+            <Input placeholder="11位手机号" maxLength={11} />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱（选填）"
+            rules={[{ type: 'email', message: '请输入有效的邮箱地址' }]}
+          >
+            <Input placeholder="选填" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 8, message: '密码至少8位' },
+              {
+                pattern: /^(?=.*[a-zA-Z])(?=.*\d)/,
+                message: '需包含字母和数字',
+              },
+            ]}
+          >
+            <Input.Password placeholder="至少8位，包含字母和数字" />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button
+                onClick={() => {
+                  setAgentModalOpen(false)
+                  agentForm.resetFields()
+                }}
+              >
+                取消
+              </Button>
+              <Button type="primary" htmlType="submit" loading={creatingAgent}>
+                创建
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   )
 }

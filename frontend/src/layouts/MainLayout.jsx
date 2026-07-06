@@ -1,13 +1,13 @@
 import React, { useState } from 'react'
 import { Layout, Avatar, Dropdown, Space, Button, theme } from 'antd'
-import { UserOutlined, LogoutOutlined, ControlOutlined, MessageOutlined } from '@ant-design/icons'
+import { UserOutlined, LogoutOutlined, ControlOutlined, MessageOutlined, CustomerServiceOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const { Header, Content } = Layout
 
 export default function MainLayout({ children }) {
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, isAgent } = useAuth()
   const navigate = useNavigate()
   const [loggingOut, setLoggingOut] = useState(false)
   const { token: themeToken } = theme.useToken()
@@ -20,6 +20,12 @@ export default function MainLayout({ children }) {
   }
 
   const menuItems = [
+    {
+      key: 'profile',
+      icon: <UserOutlined />,
+      label: '个人中心',
+      onClick: () => navigate('/profile'),
+    },
     {
       key: 'logout',
       icon: <LogoutOutlined />,
@@ -53,6 +59,15 @@ export default function MainLayout({ children }) {
               onClick={() => navigate('/admin')}
             >
               管理后台
+            </Button>
+          )}
+          {isAgent && (
+            <Button
+              type="text"
+              icon={<CustomerServiceOutlined />}
+              onClick={() => navigate('/agent')}
+            >
+              客服工作台
             </Button>
           )}
           <Dropdown menu={{ items: menuItems }} placement="bottomRight">

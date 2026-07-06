@@ -22,7 +22,7 @@ class ErrorCode:
     AI_UNAVAILABLE = 5002
     KB_EMPTY = 5003
     UNAUTHORIZED = 401
-    FORBIDDEN = 403
+    FORBIDDEN = 1004
     RATE_LIMITED = 429
     SERVER_ERROR = 500
 
@@ -31,6 +31,8 @@ ERROR_MESSAGES = {
     200: "success",
     1001: "参数错误",
     1002: "资源不存在",
+    1003: "禁止访问",
+    1004: "权限不足",
     2001: "账号已存在",
     2002: "账号或密码错误",
     2003: "账号已禁用",

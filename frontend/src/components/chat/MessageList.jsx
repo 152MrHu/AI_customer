@@ -1,17 +1,42 @@
-import React, { useEffect, useRef } from 'react'
-import { Spin, Typography, theme } from 'antd'
-import { RobotOutlined, UserOutlined } from '@ant-design/icons'
+import React, { useEffect, useRef, useState } from 'react'
+import { Spin, Typography, theme, Button, Space, message } from 'antd'
+import { RobotOutlined, UserOutlined, LikeOutlined, LikeFilled, DislikeOutlined, DislikeFilled } from '@ant-design/icons'
 import SourceViewer from './SourceViewer'
+import { chatApi } from '../../api/chat'
 
 const { Paragraph } = Typography
 
 export default function MessageList({ messages, loading, streaming }) {
   const bottomRef = useRef(null)
   const { token: themeToken } = theme.useToken()
+  const [feedbackMap, setFeedbackMap] = useState({})
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  // 初始化反馈状态
+  useEffect(() => {
+    const initial = {}
+    messages.forEach((msg) => {
+      if (msg.role === 'assistant' && msg.feedback) {
+        initial[msg.id] = msg.feedback
+      }
+    })
+    setFeedbackMap((prev) => ({ ...prev, ...initial }))
+  }, [messages])
+
+  const handleFeedback = async (messageId, type) => {
+    // 如果已点击同一按钮，取消反馈
+    const newValue = feedbackMap[messageId] === type ? null : type
+    try {
+      await chatApi.submitFeedback(messageId, { feedback: newValue })
+      setFeedbackMap((prev) => ({ ...prev, [messageId]: newValue }))
+      message.success(newValue ? '感谢您的反馈' : '已取消反馈')
+    } catch (e) {
+      message.error(e.message || '提交反馈失败')
+    }
+  }
 
   const renderAvatar = (role) => {
     const isAi = role === 'assistant'
@@ -104,6 +129,32 @@ export default function MessageList({ messages, loading, streaming }) {
               {msg.sources && msg.sources.length > 0 && (
                 <div style={{ marginTop: 8, width: '100%' }}>
                   <SourceViewer sources={msg.sources} />
+                </div>
+              )}
+              {isAi && !streaming && msg.content && (
+                <div style={{ marginTop: 8, width: '100%' }}>
+                  <Space size="small">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={feedbackMap[msg.id] === 'like' ? <LikeFilled /> : <LikeOutlined />}
+                      style={{
+                        color: feedbackMap[msg.id] === 'like' ? themeToken.colorPrimary : themeToken.colorTextSecondary,
+                        fontSize: 13,
+                      }}
+                      onClick={() => handleFeedback(msg.id, 'like')}
+                    />
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={feedbackMap[msg.id] === 'dislike' ? <DislikeFilled /> : <DislikeOutlined />}
+                      style={{
+                        color: feedbackMap[msg.id] === 'dislike' ? themeToken.colorError : themeToken.colorTextSecondary,
+                        fontSize: 13,
+                      }}
+                      onClick={() => handleFeedback(msg.id, 'dislike')}
+                    />
+                  </Space>
                 </div>
               )}
             </div>

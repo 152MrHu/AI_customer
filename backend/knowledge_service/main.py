@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from common.config import settings
+from common.response import success_response
 from common.database import create_pool, close_pool
 from common.http_client import create_client, close_client
 from common.logging_config import setup_logger, get_logger
@@ -75,6 +76,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 健康检查
+@app.get("/health")
+async def health():
+    """Knowledge Service 健康检查"""
+    return success_response({"status": "healthy", "service": "knowledge_service"})
+
 # 注册全局异常处理器
 register_exception_handlers(app)
 
@@ -87,7 +94,7 @@ app.include_router(vector_search.router)
 if __name__ == "__main__":
     uvicorn.run(
         "knowledge_service.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8003,
         reload=True,
     )

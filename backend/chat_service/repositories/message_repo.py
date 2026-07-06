@@ -1,7 +1,7 @@
 """消息表数据访问层 - 纯 SQL 操作"""
 from typing import Optional
 
-from common.database import DB, fetchall, fetchone, execute
+from common.database import DB, execute, fetchall, fetchone
 
 
 async def insert_message(
@@ -48,6 +48,15 @@ async def find_by_session(session_id: int) -> list[dict]:
         "ORDER BY created_at ASC"
     )
     return await fetchall(sql, (session_id,))
+
+
+async def find_by_id(message_id: int) -> Optional[dict]:
+    """根据 message_id 查找消息"""
+    sql = (
+        "SELECT message_id, session_id, role, content FROM messages "
+        "WHERE message_id = %s"
+    )
+    return await fetchone(sql, (message_id,))
 
 
 async def get_last_message_preview(session_id: int) -> Optional[str]:

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from common.database import create_pool, close_pool
+from common.response import success_response
 from common.redis_client import create_redis, close_redis
 from common.exception_handlers import register_exception_handlers
 from common.logging_config import setup_logger
@@ -30,6 +31,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="User Service", lifespan=lifespan)
 
+# 健康检查
+@app.get("/health")
+async def health():
+    """User Service 健康检查"""
+    return success_response({"status": "healthy", "service": "user_service"})
+
 # 注册全局异常处理器
 register_exception_handlers(app)
 
@@ -40,7 +47,7 @@ app.include_router(router)
 if __name__ == "__main__":
     uvicorn.run(
         "user_service.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8001,
         reload=True,
     )

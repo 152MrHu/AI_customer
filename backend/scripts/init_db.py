@@ -37,7 +37,7 @@ async def init_database():
                 print(f"  执行: {stmt[:60]}...")
         print("\n数据库初始化完成！")
         print(f"数据库: {settings.MYSQL_DATABASE}")
-        print("已创建表: users, knowledge_bases, documents, sessions, messages")
+        print("已创建表: users, knowledge_bases, documents, sessions, messages, message_feedback, handoff_tickets")
     finally:
         conn.close()
 

@@ -1,9 +1,26 @@
 """HTTP 客户端 - httpx 异步，用于服务间调用"""
-import httpx
+import contextvars
 from typing import AsyncGenerator, Optional
+
+import httpx
 from common.config import settings
 
 _client: Optional[httpx.AsyncClient] = None
+
+# 请求 ID 上下文变量，用于在服务间调用时透传 X-Request-Id
+_request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "request_id", default=None
+)
+
+
+def set_request_id(request_id: str) -> None:
+    """设置当前请求的 X-Request-Id (contextvars)"""
+    _request_id_var.set(request_id)
+
+
+def get_request_id() -> Optional[str]:
+    """获取当前请求的 X-Request-Id (contextvars)"""
+    return _request_id_var.get()
 
 
 async def create_client():
@@ -27,6 +44,15 @@ def get_client() -> httpx.AsyncClient:
     if _client is None:
         raise RuntimeError("httpx 客户端未初始化")
     return _client
+
+
+def get_client_with_tracing() -> httpx.AsyncClient:
+    """返回一个 httpx 客户端，自动转发当前上下文的 X-Request-Id 请求头"""
+    client = get_client()
+    request_id = get_request_id()
+    if request_id:
+        client.headers.update({"X-Request-Id": request_id})
+    return client
 
 
 async def post_json(url: str, json: dict, headers: dict = None) -> httpx.Response:

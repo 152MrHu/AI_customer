@@ -2,18 +2,8 @@ import { getToken } from '../utils/auth'
 
 const BASE = import.meta.env.VITE_API_BASE || ''
 
-export async function streamChat(sessionId, content, callbacks) {
+async function readSSEStream(resp, callbacks) {
   const { onToken, onSources, onDone, onError } = callbacks
-  const token = getToken()
-
-  const resp = await fetch(`${BASE}/api/chat/sessions/${sessionId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify({ content }),
-  })
 
   if (!resp.ok) {
     onError?.('网络错误')
@@ -30,7 +20,7 @@ export async function streamChat(sessionId, content, callbacks) {
 
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
-    buffer = lines.pop() // 保留最后不完整的行
+    buffer = lines.pop()
 
     for (const line of lines) {
       const trimmed = line.trim()
@@ -51,4 +41,34 @@ export async function streamChat(sessionId, content, callbacks) {
       }
     }
   }
+}
+
+export async function streamChat(sessionId, content, callbacks) {
+  const token = getToken()
+
+  const resp = await fetch(`${BASE}/api/chat/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify({ content }),
+  })
+
+  await readSSEStream(resp, callbacks)
+}
+
+export async function streamAgentMessage(sessionId, content, callbacks) {
+  const token = getToken()
+
+  const resp = await fetch(`${BASE}/api/chat/sessions/${sessionId}/agent-message`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify({ content }),
+  })
+
+  await readSSEStream(resp, callbacks)
 }

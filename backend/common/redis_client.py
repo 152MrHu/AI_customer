@@ -48,27 +48,27 @@ async def is_blacklisted(token: str) -> bool:
 
 
 # ========== 登录失败计数 ==========
-async def incr_login_fail(account: str) -> int:
-    """递增登录失败次数，返回当前次数"""
+async def incr_login_fail(identifier: str | int) -> int:
+    """递增登录失败次数（按 user_id 或账号），返回当前次数"""
     r = get_redis()
-    key = f"login_fail:{account}"
+    key = f"login_fail:{identifier}"
     count = await r.incr(key)
     if count == 1:
         await r.expire(key, 1800)  # 30 分钟
     return count
 
 
-async def get_login_fail_count(account: str) -> int:
+async def get_login_fail_count(identifier: str | int) -> int:
     """获取登录失败次数"""
     r = get_redis()
-    val = await r.get(f"login_fail:{account}")
+    val = await r.get(f"login_fail:{identifier}")
     return int(val) if val else 0
 
 
-async def clear_login_fail(account: str):
+async def clear_login_fail(identifier: str | int):
     """清除登录失败计数"""
     r = get_redis()
-    await r.delete(f"login_fail:{account}")
+    await r.delete(f"login_fail:{identifier}")
 
 
 # ========== 限流计数 ==========
@@ -86,6 +86,23 @@ async def get_rate_limit_count(user_id: int) -> int:
     """获取限流计数"""
     r = get_redis()
     val = await r.get(f"rate_limit:{user_id}")
+    return int(val) if val else 0
+
+
+# ========== 通用计数器（自定义 TTL） ==========
+async def incr_with_ttl(key: str, ttl_seconds: int) -> int:
+    """递增一个带 TTL 的计数器，返回当前值"""
+    r = get_redis()
+    count = await r.incr(key)
+    if count == 1:
+        await r.expire(key, ttl_seconds)
+    return count
+
+
+async def get_count(key: str) -> int:
+    """获取计数器当前值"""
+    r = get_redis()
+    val = await r.get(key)
     return int(val) if val else 0
 
 

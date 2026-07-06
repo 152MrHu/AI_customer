@@ -59,12 +59,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id BIGINT NOT NULL,
     kb_id BIGINT DEFAULT NULL,
     title VARCHAR(100) DEFAULT '新会话',
+    mode VARCHAR(20) NOT NULL DEFAULT 'kb',
     status TINYINT NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_user_id (user_id),
     KEY idx_user_updated (user_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
+
+-- 迁移：为已有 sessions 表添加 mode 列（兼容旧表）
+-- ALTER TABLE sessions ADD COLUMN mode VARCHAR(20) NOT NULL DEFAULT 'kb' AFTER kb_id;
 
 -- 5. 消息表
 CREATE TABLE IF NOT EXISTS messages (
@@ -77,3 +81,30 @@ CREATE TABLE IF NOT EXISTS messages (
     KEY idx_session_id (session_id),
     KEY idx_session_created (session_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息表';
+
+-- 6. 消息反馈表
+CREATE TABLE IF NOT EXISTS message_feedback (
+    feedback_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    message_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    rating TINYINT NOT NULL COMMENT '1=赞 0=踩',
+    comment VARCHAR(500) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_msg_user (message_id, user_id),
+    KEY idx_message_id (message_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息反馈表';
+
+-- 7. 人工转接工单表
+CREATE TABLE IF NOT EXISTS handoff_tickets (
+    ticket_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    reason VARCHAR(500) DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT 'pending/claimed/resolved/closed',
+    claimed_by BIGINT DEFAULT NULL,
+    resolution VARCHAR(1000) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_user_id (user_id),
+    KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人工转接工单表';

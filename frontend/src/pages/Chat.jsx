@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Typography, Empty, message, theme, Segmented, Select } from 'antd'
-import { RobotOutlined, BookOutlined, GlobalOutlined } from '@ant-design/icons'
+import { Layout, Typography, Empty, message, theme, Segmented, Select, Button, Modal, Input, Alert, Tag } from 'antd'
+import { RobotOutlined, BookOutlined, GlobalOutlined, CustomerServiceOutlined, SyncOutlined } from '@ant-design/icons'
 import MainLayout from '../layouts/MainLayout'
 import SessionList from '../components/chat/SessionList'
 import MessageList from '../components/chat/MessageList'
@@ -26,7 +26,12 @@ export default function Chat() {
   const [createMode, setCreateMode] = useState('kb')
   const [knowledgeBases, setKnowledgeBases] = useState([])
   const [selectedKbId, setSelectedKbId] = useState(null)
+  const [handoffOpen, setHandoffOpen] = useState(false)
+  const [handoffReason, setHandoffReason] = useState('')
+  const [handoffLoading, setHandoffLoading] = useState(false)
+  const [handoffTicket, setHandoffTicket] = useState(null)  // 当前会话的转人工工单
   const streamAbortRef = useRef(false)
+  const pollRef = useRef(null)
   const { token: themeToken } = theme.useToken()
 
   const loadSessions = useCallback(async () => {
@@ -86,14 +91,64 @@ export default function Chat() {
     }
   }, [])
 
+  // 查询当前会话的转人工工单
+  const checkHandoffTicket = useCallback(async (sessionId) => {
+    try {
+      // 使用 getAllTickets（不带 claimed_by），普通用户后端自动过滤为自己的工单
+      const data = await chatApi.getAllTickets({ page: 1, page_size: 20 })
+      const ticket = (data.items || []).find((t) => t.session_id === parseInt(sessionId, 10))
+      setHandoffTicket(ticket || null)
+      return ticket
+    } catch {
+      return null
+    }
+  }, [])
+
   const handleSelectSession = useCallback(
     (sessionId) => {
       if (sessionId === currentSessionId) return
       setCurrentSessionId(sessionId)
+      setHandoffTicket(null)
       loadSessionDetail(sessionId)
+      checkHandoffTicket(sessionId)
     },
-    [currentSessionId, loadSessionDetail]
+    [currentSessionId, loadSessionDetail, checkHandoffTicket]
   )
+
+  // 有转人工工单时，每 5 秒自动刷新消息（接收客服回复）
+  useEffect(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (!currentSessionId) return
+
+    pollRef.current = setInterval(async () => {
+      // 刷新工单状态
+      const ticket = await checkHandoffTicket(currentSessionId)
+      // 有活跃工单（pending/claimed）时自动刷新消息
+      if (ticket && (ticket.status === 'pending' || ticket.status === 'claimed')) {
+        try {
+          const data = await chatApi.sessionDetail(currentSessionId)
+          const history = (data.messages || []).map((m) => ({
+            id: m.message_id != null ? String(m.message_id) : genMsgId(),
+            role: m.role,
+            content: m.content,
+            sources: m.sources || [],
+            created_at: m.created_at,
+          }))
+          setMessages((prev) => {
+            // 只在新消息数量不同时才更新，避免闪烁
+            if (history.length !== prev.length) return history
+            return prev
+          })
+        } catch { /* 静默 */ }
+      }
+      // 工单已解决/关闭时停止轮询（下次切换会话时重置）
+      if (ticket && (ticket.status === 'resolved' || ticket.status === 'closed')) {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      }
+    }, 5000)
+
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [currentSessionId, checkHandoffTicket])
 
   const handleCreateSession = useCallback(async () => {
     // kb 模式下必须选择知识库
@@ -139,6 +194,22 @@ export default function Chat() {
     },
     [currentSessionId]
   )
+
+  const handleHandoff = useCallback(async () => {
+    setHandoffLoading(true)
+    try {
+      const result = await chatApi.createHandoff(currentSessionId, { reason: handoffReason || undefined })
+      message.success('已提交转人工请求，请耐心等待客服接入')
+      setHandoffOpen(false)
+      setHandoffReason('')
+      // 立即设置工单信息，显示"等待客服接入"
+      setHandoffTicket({ ticket_id: result.ticket_id, status: 'pending' })
+    } catch (e) {
+      message.error(e.message || '提交转人工请求失败')
+    } finally {
+      setHandoffLoading(false)
+    }
+  }, [currentSessionId, handoffReason])
 
   const handleSend = useCallback(
     async (content) => {
@@ -253,13 +324,84 @@ export default function Chat() {
                     <BookOutlined /> 知识库模式
                   </Text>
                 )}
+                {/* 转人工工单状态 */}
+                {handoffTicket && (
+                  <Tag
+                    icon={handoffTicket.status === 'claimed' ? <SyncOutlined spin /> : undefined}
+                    color={
+                      handoffTicket.status === 'pending' ? 'orange' :
+                      handoffTicket.status === 'claimed' ? 'blue' :
+                      handoffTicket.status === 'resolved' ? 'green' : 'default'
+                    }
+                  >
+                    {handoffTicket.status === 'pending' ? '等待客服接入' :
+                     handoffTicket.status === 'claimed' ? '客服处理中' :
+                     handoffTicket.status === 'resolved' ? '已解决' : '已关闭'}
+                  </Tag>
+                )}
+                <div style={{ flex: 1 }} />
+                <Button
+                  type="primary"
+                  ghost
+                  size="small"
+                  icon={<CustomerServiceOutlined />}
+                  onClick={() => setHandoffOpen(true)}
+                  disabled={!!handoffTicket}
+                >
+                  {handoffTicket ? '已转人工' : '转人工'}
+                </Button>
               </div>
+
+              <Modal
+                title="转人工客服"
+                open={handoffOpen}
+                onCancel={() => setHandoffOpen(false)}
+                footer={null}
+                destroyOnClose
+              >
+                <div style={{ padding: '8px 0' }}>
+                  <p style={{ marginBottom: 16, color: themeToken.colorTextSecondary }}>
+                    您即将发起转人工请求，请简要描述您的问题：
+                  </p>
+                  <Input.TextArea
+                    rows={4}
+                    placeholder="请输入您的问题描述（选填）..."
+                    value={handoffReason}
+                    onChange={(e) => setHandoffReason(e.target.value)}
+                    style={{ marginBottom: 16 }}
+                  />
+                  <div style={{ textAlign: 'right' }}>
+                    <Button
+                      style={{ marginRight: 8 }}
+                      onClick={() => setHandoffOpen(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      type="primary"
+                      loading={handoffLoading}
+                      onClick={handleHandoff}
+                    >
+                      确认转人工
+                    </Button>
+                  </div>
+                </div>
+              </Modal>
+
               <MessageList
                 messages={messages}
                 loading={messagesLoading}
                 streaming={streaming}
               />
-              <MessageInput onSend={handleSend} disabled={streaming || messagesLoading} />
+              <MessageInput
+                onSend={handleSend}
+                disabled={streaming || messagesLoading}
+                placeholder={
+                  handoffTicket?.status === 'claimed'
+                    ? '人工客服已接入，请输入您的问题...'
+                    : '输入您的问题，Enter 发送...'
+                }
+              />
             </>
           ) : (
             <div

@@ -1,4 +1,5 @@
 """JWT 签发与校验"""
+import uuid
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -6,13 +7,14 @@ from common.config import settings
 
 
 def create_token(user_id: int, username: str, role: str, remember_me: bool = False) -> str:
-    """签发 JWT Token"""
+    """签发 JWT Token（含 jti 唯一标识用于撤销追踪）"""
     hours = settings.JWT_REMEMBER_HOURS if remember_me else settings.JWT_EXPIRE_HOURS
     now = datetime.now(timezone.utc)
     payload = {
         "user_id": user_id,
         "username": username,
         "role": role,
+        "jti": uuid.uuid4().hex,  # 每个 token 唯一标识
         "iat": now,
         "exp": now + timedelta(hours=hours),
     }

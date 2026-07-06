@@ -24,6 +24,13 @@ class SendMessageRequest(BaseModel):
     )
 
 
+class AgentMessageRequest(BaseModel):
+    """客服发送消息请求"""
+    content: str = Field(
+        ..., min_length=1, max_length=2000, description="消息内容(1-2000字符)"
+    )
+
+
 # ========== 响应模型 ==========
 
 class MessageItem(BaseModel):

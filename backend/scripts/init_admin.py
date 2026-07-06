@@ -64,10 +64,24 @@ async def init_admin():
                 )
                 print("  测试用户创建成功: testuser / user123 (role=user)")
 
+            # 创建默认客服账户
+            await cur.execute("SELECT user_id FROM users WHERE username = 'agent1'")
+            if await cur.fetchone():
+                print("默认客服已存在，跳过创建。")
+            else:
+                password_hash = hash_password("agent123")
+                await cur.execute(
+                    "INSERT INTO users (username, phone, email, password_hash, role, status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    ("agent1", "13900000001", "agent1@example.com", password_hash, "agent", 1),
+                )
+                print("  默认客服创建成功: agent1 / agent123 (role=agent)")
+
         print("\n初始化完成！")
         print("可用账户:")
         print("  管理员: admin / admin123")
         print("  测试用户: testuser / user123")
+        print("  客服:    agent1 / agent123")
     finally:
         conn.close()
 

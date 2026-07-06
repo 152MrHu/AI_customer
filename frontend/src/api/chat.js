@@ -5,4 +5,15 @@ export const chatApi = {
   listSessions: (params) => http.get('/api/chat/sessions', params),
   sessionDetail: (sessionId) => http.get(`/api/chat/sessions/${sessionId}`),
   deleteSession: (sessionId) => http.delete(`/api/chat/sessions/${sessionId}`),
+  submitFeedback: (messageId, data) => http.post(`/api/chat/messages/${messageId}/feedback`, data),
+  createHandoff: (sessionId, data) => http.post(`/api/chat/sessions/${sessionId}/handoff`, data),
+
+  // Agent / Handoff APIs
+  getAllTickets: (params) => http.get('/api/chat/handoff/tickets', params),
+  getPendingTickets: (params) => http.get('/api/chat/handoff/tickets', { ...params, status: 'pending' }),
+  getMyTickets: (params) => http.get('/api/chat/handoff/tickets', { ...params, claimed_by: 'me' }),
+  getPendingCount: () => http.get('/api/chat/handoff/pending-count'),
+  claimTicket: (ticketId) => http.put(`/api/chat/handoff/${ticketId}/claim`),
+  resolveTicket: (ticketId, data) => http.put(`/api/chat/handoff/${ticketId}/resolve`, data),
+  sendAgentMessage: (sessionId, content) => http.post(`/api/chat/sessions/${sessionId}/agent-message`, { content }),
 }

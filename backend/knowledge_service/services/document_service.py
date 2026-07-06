@@ -1,4 +1,5 @@
 """文档服务"""
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,10 +16,46 @@ from .ingest_service import schedule_ingest
 
 logger = get_logger()
 
-# 支持的文件格式
+# 支持的文件格式及其 magic bytes
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "md", "csv"}
+MAGIC_BYTES = {
+    "pdf": b"%PDF",
+    "docx": b"PK\x03\x04",  # DOCX 是 ZIP 格式
+}
 # 文件大小限制 20MB
 MAX_FILE_SIZE = 20 * 1024 * 1024
+
+
+def _sanitize_filename(filename: str) -> str:
+    """清洗文件名：移除路径遍历字符和危险字符，生成安全的文件名"""
+    # 移除路径分隔符和空字节
+    sanitized = filename.replace("\\", "_").replace("/", "_").replace("\x00", "")
+    # 只保留安全字符：字母、数字、中文、下划线、连字符、点
+    sanitized = re.sub(r"[^\w一-鿿.\- ]", "_", sanitized)
+    # 去除首尾空白和点（Windows 不允许文件名以点结尾）
+    sanitized = sanitized.strip(" .")
+    # 防止空文件名
+    if not sanitized or sanitized.startswith("."):
+        sanitized = f"uploaded_{sanitized}"
+    if not sanitized:
+        sanitized = "unnamed_file"
+    # 限制文件名长度
+    if len(sanitized) > 200:
+        name, ext = (sanitized.rsplit(".", 1) + [""])[:2]
+        sanitized = f"{name[:195]}.{ext}" if ext else name[:200]
+    return sanitized
+
+
+def _validate_magic_bytes(file_ext: str, content: bytes) -> None:
+    """校验文件魔数（magic bytes）是否与扩展名匹配"""
+    expected = MAGIC_BYTES.get(file_ext)
+    if expected is None:
+        return  # txt, md, csv 无固定魔数，跳过
+    if not content.startswith(expected):
+        raise BusinessError(
+            ErrorCode.PARAM_ERROR,
+            f"文件内容与扩展名 .{file_ext} 不匹配，上传被拒绝",
+        )
 
 
 async def upload_document(kb_id: int, file: UploadFile, upload_dir: Path) -> dict:
@@ -35,8 +72,8 @@ async def upload_document(kb_id: int, file: UploadFile, upload_dir: Path) -> dic
         raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
 
     # 校验文件格式
-    file_name = file.filename or ""
-    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    raw_name = file.filename or ""
+    ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise BusinessError(ErrorCode.DOC_FORMAT_UNSUPPORTED, "仅支持 pdf/txt/docx/md/csv 格式")
 
@@ -45,6 +82,13 @@ async def upload_document(kb_id: int, file: UploadFile, upload_dir: Path) -> dic
     file_size = len(content)
     if file_size > MAX_FILE_SIZE:
         raise BusinessError(ErrorCode.FILE_TOO_LARGE, "文件大小不能超过 20MB")
+
+    # 校验魔数（防止伪造扩展名）
+    _validate_magic_bytes(ext, content)
+
+    # 清洗文件名（防路径遍历）
+    file_name = _sanitize_filename(raw_name)
+    logger.info("文件名清洗: %s -> %s", raw_name, file_name)
 
     # 检查同知识库文件名唯一
     existing = await document_repo.find_by_name(kb_id, file_name)

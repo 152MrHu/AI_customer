@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from common.config import settings
+from common.response import success_response
 from common.redis_client import create_redis, close_redis
 from common.http_client import create_client, close_client
 from common.logging_config import setup_logger
@@ -51,11 +52,18 @@ app.add_middleware(RequestLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# 健康检查
+@app.get("/health")
+async def health():
+    """API Gateway 健康检查"""
+    return success_response({"status": "healthy", "service": "gateway"})
 
 # 挂载通配代理路由
 app.include_router(proxy_router)

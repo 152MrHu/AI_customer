@@ -1,0 +1,5 @@
+-- ============================================================
+-- 迁移脚本：为已有 sessions 表添加 mode 列
+-- 如果 sessions 表已存在但缺少 mode 列，执行此脚本
+-- ============================================================
+-- ALTER TABLE sessions ADD COLUMN mode VARCHAR(20) NOT NULL DEFAULT 'kb' AFTER kb_id;

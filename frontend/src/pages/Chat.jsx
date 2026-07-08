@@ -49,11 +49,11 @@ export default function Chat() {
     }
   }, [])
 
-  // 加载知识库列表
+  // 加载知识库列表（使用公开接口，所有用户可访问）
   const loadKnowledgeBases = useCallback(async () => {
     try {
-      const data = await knowledgeApi.listKbs({ page: 1, page_size: 50 })
-      const list = data.items || []
+      const data = await knowledgeApi.listAvailableKbs()
+      const list = Array.isArray(data) ? data : (data.items || [])
       setKnowledgeBases(list)
       // 默认选中第一个知识库
       if (list.length > 0 && selectedKbId === null) {

@@ -87,3 +87,12 @@ async def list_kbs(page_params: PageParams) -> dict:
     total = await kb_repo.count_kbs()
     items = await kb_repo.list_kbs(page_params.offset, page_params.page_size)
     return {"total": total, "items": items}
+
+
+async def list_available_kbs() -> list[dict]:
+    """获取所有可用知识库的简要列表（供用户选择知识库时使用）
+    只返回 id 和 name，不包含文档数量等管理信息。
+    不限制数量，返回全部（知识库数量通常很少）。
+    """
+    items = await kb_repo.list_kbs(0, 100)
+    return [{"kb_id": item["kb_id"], "name": item["name"]} for item in items]

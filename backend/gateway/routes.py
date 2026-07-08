@@ -30,7 +30,10 @@ def is_public(path: str) -> bool:
 
 
 def is_admin_path(path: str) -> bool:
-    """知识库管理接口需要管理员权限"""
+    """知识库管理接口需要管理员权限（列表查询除外，供用户选择知识库）"""
+    # GET 知识库列表接口对已认证用户开放
+    if path == "/api/knowledge/bases/available":
+        return False
     return path.startswith("/api/knowledge")
 
 

@@ -1,7 +1,7 @@
 """知识库路由"""
 from fastapi import APIRouter, Depends
 
-from common.dependencies import require_admin
+from common.dependencies import require_admin, get_current_user
 from common.pagination import get_page_params, PageParams
 from common.response import success_response, paginated_response
 
@@ -34,6 +34,15 @@ async def list_kbs(
         page=page_params.page,
         page_size=page_params.page_size,
     )
+
+
+@router.get("/bases/available")
+async def list_available_kbs(
+    user: dict = Depends(get_current_user),
+):
+    """获取可用知识库列表（所有已认证用户可访问，用于会话创建时选择知识库）"""
+    result = await kb_service.list_available_kbs()
+    return success_response(result)
 
 
 @router.delete("/bases/{kb_id}")

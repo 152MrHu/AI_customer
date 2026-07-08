@@ -15,6 +15,7 @@ import {
 import { InboxOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
 import { knowledgeApi } from '../../api/knowledge'
+import { useAuth } from '../../context/AuthContext'
 import { formatTime, formatFileSize } from '../../utils/format'
 
 const { Dragger } = Upload
@@ -27,6 +28,7 @@ const statusMap = {
 }
 
 export default function DocumentManage() {
+  const { isAdmin } = useAuth()
   const [searchParams] = useSearchParams()
   const [kbList, setKbList] = useState([])
   const [kbId, setKbId] = useState(null)
@@ -40,10 +42,15 @@ export default function DocumentManage() {
 
   const loadKbList = useCallback(async () => {
     try {
-      const res = await knowledgeApi.listKbs({ page: 1, page_size: 100 })
-      const list = res.items || []
+      let list
+      if (isAdmin) {
+        const res = await knowledgeApi.listKbs({ page: 1, page_size: 100 })
+        list = res.items || []
+      } else {
+        const res = await knowledgeApi.listAvailableKbs()
+        list = Array.isArray(res) ? res : (res.items || [])
+      }
       setKbList(list)
-      // 优先使用 URL 参数中的 kb_id，否则取第一个
       const urlKbId = searchParams.get('kb_id')
       if (urlKbId) {
         setKbId(urlKbId)
@@ -53,7 +60,7 @@ export default function DocumentManage() {
     } catch (e) {
       message.error(e.message || '加载知识库列表失败')
     }
-  }, [searchParams, kbId])
+  }, [searchParams, kbId, isAdmin])
 
   useEffect(() => {
     loadKbList()

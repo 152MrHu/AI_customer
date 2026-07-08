@@ -31,10 +31,12 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     kb_id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(500) DEFAULT NULL,
+    owner_id BIGINT DEFAULT NULL COMMENT '创建者ID，NULL=管理员(公共)',
     document_count INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_name (name)
+    UNIQUE KEY uk_name (name),
+    KEY idx_owner_id (owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
 
 -- 3. 文档表

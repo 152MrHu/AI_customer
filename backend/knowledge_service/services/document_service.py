@@ -13,6 +13,7 @@ from common.pagination import PageParams
 from ..repositories import document_repo, kb_repo
 from ..vector_store import delete_by_document
 from .ingest_service import schedule_ingest
+from .kb_service import check_kb_ownership
 
 logger = get_logger()
 
@@ -133,26 +134,31 @@ async def list_documents(
     return {"total": total, "items": items}
 
 
-async def delete_document(document_id: int):
-    """删除文档：
+async def delete_document(document_id: int, user_id: int = None, role: str = "user"):
+    """删除文档（需校验文档所属知识库的所有权）：
 
     重要：只有 status == 'ready' 的文档才清理向量数据，
     因为 pending/failed 状态的文档从未成功写入过向量数据。
 
     删除步骤（ready 文档）：
-    1. 清理向量数据（SQLite + numpy，不会 segfault）
-    2. 删除数据库记录
-    3. 更新知识库 document_count - 1
-    4. 删除物理文件
+    1. 校验所有权（知识库 owner 或 admin）
+    2. 清理向量数据（SQLite + numpy，不会 segfault）
+    3. 删除数据库记录
+    4. 更新知识库 document_count - 1
+    5. 删除物理文件
 
     删除步骤（非 ready 文档）：
-    1. 跳过向量清理（无向量数据）
-    2. 删除数据库记录
-    3. 删除物理文件
+    1. 校验所有权
+    2. 跳过向量清理（无向量数据）
+    3. 删除数据库记录
+    4. 删除物理文件
     """
     doc = await document_repo.find_by_id(document_id)
     if not doc:
         raise BusinessError(ErrorCode.NOT_FOUND, "文档不存在")
+
+    # 校验知识库所有权
+    await check_kb_ownership(doc["kb_id"], user_id, role)
 
     kb_id = doc["kb_id"]
     status = doc["status"]

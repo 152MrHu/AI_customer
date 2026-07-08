@@ -13,11 +13,23 @@ from ..vector_store import create_collection, delete_collection
 logger = get_logger()
 
 
-async def create_kb(data: dict) -> dict:
+async def check_kb_ownership(kb_id: int, user_id: int, role: str):
+    """校验知识库所有权：owner 本人或 admin 可操作，否则抛出异常"""
+    if role == "admin":
+        return
+    kb = await kb_repo.find_by_id(kb_id)
+    if not kb:
+        raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
+    if kb.get("owner_id") != user_id:
+        raise BusinessError(ErrorCode.FORBIDDEN, "无权操作此知识库，只能操作自己创建的知识库")
+
+
+async def create_kb(data: dict, owner_id: int = None) -> dict:
     """创建知识库：
     1. 检查名称唯一
-    2. 插入数据库
-    3. 异步创建 ChromaDB collection（放在线程中防止阻塞事件循环）
+    2. 插入数据库（含 owner_id）
+    3. 创建向量存储 collection
+    owner_id=None → 管理员创建（公共），owner_id=用户ID → 私有
     """
     name = data["name"]
     description = data.get("description")
@@ -28,7 +40,7 @@ async def create_kb(data: dict) -> dict:
         raise BusinessError(ErrorCode.KB_NAME_EXISTS, "知识库名称已存在")
 
     # 插入数据库
-    kb_id = await kb_repo.insert_kb(name, description)
+    kb_id = await kb_repo.insert_kb(name, description, owner_id)
 
     # 创建向量存储 collection（SQLite 自动创建，始终成功）
     create_collection(kb_id)
@@ -38,13 +50,14 @@ async def create_kb(data: dict) -> dict:
     return kb
 
 
-async def delete_kb(kb_id: int):
-    """删除知识库：
-    1. 删除 ChromaDB collection（放在线程中）
-    2. 删除所有文档数据库记录
-    3. 删除所有物理文件
-    4. 删除知识库数据库记录
+async def delete_kb(kb_id: int, user_id: int = None, role: str = "user"):
+    """删除知识库（需校验所有权）：
+    1. 校验所有权（owner 或 admin）
+    2. 删除向量存储
+    3. 删除文档记录+文件
+    4. 删除知识库记录
     """
+    await check_kb_ownership(kb_id, user_id, role)
     kb = await kb_repo.find_by_id(kb_id)
     if not kb:
         raise BusinessError(ErrorCode.NOT_FOUND, "知识库不存在")
@@ -89,10 +102,21 @@ async def list_kbs(page_params: PageParams) -> dict:
     return {"total": total, "items": items}
 
 
-async def list_available_kbs() -> list[dict]:
-    """获取所有可用知识库的简要列表（供用户选择知识库时使用）
-    只返回 id 和 name，不包含文档数量等管理信息。
-    不限制数量，返回全部（知识库数量通常很少）。
+async def list_available_kbs(user_id: int = None, role: str = "user") -> list[dict]:
+    """获取可用知识库的简要列表（供用户选择知识库时使用）
+    - admin：返回全部
+    - 普通用户/客服：返回公共知识库(owner_id IS NULL) + 自己创建的
     """
-    items = await kb_repo.list_kbs(0, 100)
-    return [{"kb_id": item["kb_id"], "name": item["name"]} for item in items]
+    if role == "admin":
+        items = await kb_repo.list_available_kbs(None)
+    else:
+        items = await kb_repo.list_available_kbs(user_id)
+    return [{
+        "kb_id": item["kb_id"],
+        "name": item["name"],
+        "description": item.get("description"),
+        "owner_id": item.get("owner_id"),
+        "document_count": item.get("document_count", 0),
+        "created_at": str(item["created_at"]) if item.get("created_at") else None,
+        "updated_at": str(item["updated_at"]) if item.get("updated_at") else None,
+    } for item in items]

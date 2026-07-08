@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Layout, Avatar, Dropdown, Space, Button, theme } from 'antd'
-import { UserOutlined, LogoutOutlined, ControlOutlined, MessageOutlined, CustomerServiceOutlined } from '@ant-design/icons'
+import { UserOutlined, LogoutOutlined, ControlOutlined, MessageOutlined, CustomerServiceOutlined, BookOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
@@ -52,6 +52,13 @@ export default function MainLayout({ children }) {
           <span style={{ fontSize: 18, fontWeight: 600 }}>AI 智能客服</span>
         </Space>
         <Space size="middle">
+          <Button
+            type="text"
+            icon={<BookOutlined />}
+            onClick={() => navigate('/admin/knowledge')}
+          >
+            知识库管理
+          </Button>
           {isAdmin && (
             <Button
               type="text"

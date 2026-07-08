@@ -14,10 +14,14 @@ router = APIRouter(prefix="/api/knowledge", tags=["知识库管理"])
 @router.post("/bases")
 async def create_kb(
     request: CreateKbRequest,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(get_current_user),
 ):
-    """创建知识库（管理员）"""
-    kb = await kb_service.create_kb(request.model_dump())
+    """创建知识库（所有已认证用户）。
+    admin 创建 → owner_id=NULL（公共），普通用户/客服创建 → owner_id=user_id（私有）
+    """
+    role = user.get("role", "user")
+    owner_id = None if role == "admin" else user["user_id"]
+    kb = await kb_service.create_kb(request.model_dump(), owner_id)
     return success_response(kb)
 
 
@@ -26,7 +30,7 @@ async def list_kbs(
     page_params: PageParams = Depends(get_page_params),
     user: dict = Depends(require_admin),
 ):
-    """知识库列表（管理员）"""
+    """知识库列表（管理员专用，查看全部）"""
     result = await kb_service.list_kbs(page_params)
     return paginated_response(
         items=result["items"],
@@ -40,16 +44,21 @@ async def list_kbs(
 async def list_available_kbs(
     user: dict = Depends(get_current_user),
 ):
-    """获取可用知识库列表（所有已认证用户可访问，用于会话创建时选择知识库）"""
-    result = await kb_service.list_available_kbs()
+    """获取可用知识库列表（所有已认证用户可访问，用于会话创建时选择知识库）
+    admin → 全部，普通用户 → 公共 + 自己创建的
+    """
+    result = await kb_service.list_available_kbs(
+        user_id=user["user_id"],
+        role=user.get("role", "user"),
+    )
     return success_response(result)
 
 
 @router.delete("/bases/{kb_id}")
 async def delete_kb(
     kb_id: int,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(get_current_user),
 ):
-    """删除知识库（管理员）- 同时删除所有文档和 ChromaDB 数据"""
-    await kb_service.delete_kb(kb_id)
+    """删除知识库（owner 或 admin 可操作）"""
+    await kb_service.delete_kb(kb_id, user["user_id"], user.get("role", "user"))
     return success_response(message="知识库已删除")

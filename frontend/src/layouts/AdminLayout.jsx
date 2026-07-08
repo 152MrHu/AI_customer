@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Layout, Menu, Avatar, Button, Space, theme } from 'antd'
 import {
   BookOutlined,
@@ -12,31 +12,25 @@ import { useAuth } from '../context/AuthContext'
 
 const { Header, Sider, Content } = Layout
 
-const menuItems = [
-  {
-    key: '/admin/knowledge',
-    icon: <BookOutlined />,
-    label: '知识库管理',
-  },
-  {
-    key: '/admin/documents',
-    icon: <FileTextOutlined />,
-    label: '文档管理',
-  },
-  {
-    key: '/admin/users',
-    icon: <UserOutlined />,
-    label: '用户管理',
-  },
-]
-
 export default function AdminLayout() {
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const { token: themeToken } = theme.useToken()
+
+  // 管理员：全部菜单；普通用户/客服：仅知识库和文档管理（无用户管理）
+  const menuItems = useMemo(() => {
+    const items = [
+      { key: '/admin/knowledge', icon: <BookOutlined />, label: '知识库管理' },
+      { key: '/admin/documents', icon: <FileTextOutlined />, label: '文档管理' },
+    ]
+    if (isAdmin) {
+      items.push({ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' })
+    }
+    return items
+  }, [isAdmin])
 
   // 计算当前选中的菜单项
   const selectedKey =

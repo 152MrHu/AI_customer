@@ -11,6 +11,7 @@ from common.redis_client import (
     delete_cached_session,
 )
 from common.logging_config import setup_logger
+from common.database import fetchone
 
 from chat_service.schemas.session import CreateSessionRequest
 from chat_service.repositories import session_repo, message_repo
@@ -21,6 +22,16 @@ logger = setup_logger("chat_service")
 DEFAULT_KB_ID = 1
 # 用户会话上限
 MAX_SESSIONS_PER_USER = 100
+
+
+async def _get_kb_name(kb_id: int) -> str:
+    """查询知识库名称（共享 MySQL，直接查 knowledge_bases 表）"""
+    if not kb_id:
+        return "未知"
+    row = await fetchone(
+        "SELECT name FROM knowledge_bases WHERE kb_id = %s", (kb_id,)
+    )
+    return row["name"] if row else f"知识库#{kb_id}"
 
 
 def _iso(dt) -> Optional[str]:
@@ -61,12 +72,13 @@ def _to_message_item(row: dict) -> dict:
     }
 
 
-def _to_session_detail(row: dict, messages: list[dict]) -> dict:
+def _to_session_detail(row: dict, messages: list[dict], kb_name: str = "") -> dict:
     """构造会话详情"""
     return {
         "session_id": row["session_id"],
         "title": row.get("title", "新会话"),
         "knowledge_base_id": row.get("kb_id"),
+        "knowledge_base_name": kb_name,
         "mode": row.get("mode", "kb"),
         "created_at": _iso(row.get("created_at")),
         "updated_at": _iso(row.get("updated_at")),
@@ -120,10 +132,12 @@ async def create_session(user_id: int, data: CreateSessionRequest) -> dict:
         "创建会话成功: user_id=%s, session_id=%s, kb_id=%s, mode=%s",
         user_id, session_id, kb_id, mode,
     )
+    kb_name = await _get_kb_name(kb_id) if mode == "kb" else ""
     return {
         "session_id": session_id,
         "title": session.get("title", "新会话"),
         "knowledge_base_id": kb_id,
+        "knowledge_base_name": kb_name,
         "mode": mode,
         "created_at": _iso(session.get("created_at")),
     }
@@ -163,8 +177,12 @@ async def get_session_detail(session_id: int, user_id: int) -> dict:
     if not session:
         raise BusinessError(ErrorCode.SESSION_NOT_FOUND, "会话不存在")
 
+    kb_id = session.get("kb_id")
+    mode = session.get("mode", "kb")
+    kb_name = await _get_kb_name(kb_id) if mode == "kb" and kb_id else ""
+
     messages = await message_repo.find_by_session(session_id)
-    return _to_session_detail(session, messages)
+    return _to_session_detail(session, messages, kb_name)
 
 
 async def delete_session(session_id: int, user_id: int) -> None:

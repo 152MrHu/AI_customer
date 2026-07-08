@@ -56,6 +56,7 @@ class SessionDetail(BaseModel):
     session_id: int
     title: str
     knowledge_base_id: Optional[int] = None
+    knowledge_base_name: Optional[str] = None
     mode: Optional[str] = "kb"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -67,5 +68,6 @@ class CreateSessionResponse(BaseModel):
     session_id: int
     title: str
     knowledge_base_id: int
+    knowledge_base_name: Optional[str] = None
     mode: str = "kb"
     created_at: Optional[str] = None

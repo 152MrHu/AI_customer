@@ -159,6 +159,16 @@ export default function Chat() {
     }
     try {
       const data = await chatApi.createSession(kbId, createMode)
+      setSessionDetail({
+        session_id: data.session_id,
+        title: data.title,
+        knowledge_base_id: data.knowledge_base_id,
+        knowledge_base_name: data.knowledge_base_name || '',
+        mode: data.mode || createMode,
+        created_at: data.created_at,
+        updated_at: data.created_at,
+        messages: [],
+      })
       const newSession = {
         session_id: data.session_id,
         title: data.title,
@@ -169,7 +179,6 @@ export default function Chat() {
       }
       setSessions((prev) => [newSession, ...prev])
       setCurrentSessionId(data.session_id)
-      setSessionDetail(data)
       setMessages([])
       message.success('已创建新会话')
     } catch (e) {
@@ -322,6 +331,11 @@ export default function Chat() {
                 ) : (
                   <Text style={{ color: themeToken.colorTextSecondary, fontSize: 12 }}>
                     <BookOutlined /> 知识库模式
+                    {sessionDetail?.knowledge_base_name && (
+                      <Text type="secondary" style={{ marginLeft: 4 }}>
+                        · {sessionDetail.knowledge_base_name}
+                      </Text>
+                    )}
                   </Text>
                 )}
                 {/* 转人工工单状态 */}

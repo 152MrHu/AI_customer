@@ -97,9 +97,12 @@ async def get_session(
             session = await session_repo.find_by_id(session_id)
             if not session:
                 raise BusinessError(ErrorCode.SESSION_NOT_FOUND, "会话不存在")
+            kb_id = session.get("kb_id")
+            mode = session.get("mode", "kb")
+            kb_name = await session_service._get_kb_name(kb_id) if mode == "kb" and kb_id else ""
             messages = await message_repo.find_by_session(session_id)
             # 构造响应（复用 session_service 的格式）
-            result = session_service._to_session_detail(session, messages)
+            result = session_service._to_session_detail(session, messages, kb_name)
             return success_response(result)
         raise
 

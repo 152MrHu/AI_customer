@@ -5,18 +5,30 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from common.config import settings
 
-_logger: logging.Logger = None
+
+class SafeRotatingFileHandler(TimedRotatingFileHandler):
+    """安全的日志轮转处理器：轮转失败时降级处理，不中断服务"""
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Windows 上多进程共享日志文件时，rename 会失败
+            # 降级：不清空旧文件，继续追加写入
+            pass
 
 
 def setup_logger(name: str = "app") -> logging.Logger:
-    global _logger
-    if _logger:
-        return _logger
+    """创建独立的 logger，每个服务使用自己的日志文件"""
+
+    # 先检查是否已经有同名 logger 被配置过
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
 
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
     # 控制台
@@ -28,13 +40,14 @@ def setup_logger(name: str = "app") -> logging.Logger:
     logger.addHandler(console)
 
     # 文件（按天滚动，保留 30 天）
-    # 每个服务单独一个日志文件，避免多进程共用同一文件导致 Windows 文件锁冲突
-    file_handler = TimedRotatingFileHandler(
+    # delay=True: 延迟打开文件，减少多进程文件锁冲突
+    file_handler = SafeRotatingFileHandler(
         log_dir / f"{name}.log",
         when="midnight",
         interval=1,
         backupCount=30,
         encoding="utf-8",
+        delay=True,
     )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(
@@ -42,11 +55,9 @@ def setup_logger(name: str = "app") -> logging.Logger:
     ))
     logger.addHandler(file_handler)
 
-    _logger = logger
     return logger
 
 
 def get_logger() -> logging.Logger:
-    if _logger:
-        return _logger
+    """获取默认 logger（不依赖全局单例）"""
     return setup_logger()

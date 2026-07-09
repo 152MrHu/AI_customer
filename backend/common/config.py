@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MIN: int = 10
     TOP_K: int = 5
     SIMILARITY_THRESHOLD: float = 0.5
+    MAX_TOKENS: int = 8192
 
     # 文档切块
     CHUNK_SIZE: int = 600

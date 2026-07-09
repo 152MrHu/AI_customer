@@ -4,6 +4,7 @@ from typing import AsyncGenerator
 
 import dashscope
 
+from common.config import settings
 from common.logging_config import get_logger
 from .base import LLMAdapter
 
@@ -14,6 +15,8 @@ _STREAM_END = object()
 
 # 搜索增强推荐使用的模型（qwen-turbo 不支持联网搜索）
 SEARCH_MODEL = "qwen-plus"
+# 默认最大输出 token 数
+DEFAULT_MAX_TOKENS = getattr(settings, "MAX_TOKENS", 4096)
 
 
 def _extract_text_prompt_format(response) -> str | None:
@@ -86,6 +89,7 @@ class DashScopeAdapter(LLMAdapter):
                 "stream": True,
                 "incremental_output": True,
                 "result_format": "message",
+                "max_tokens": DEFAULT_MAX_TOKENS,
                 "enable_search": True,
                 "search_options": {
                     "search_strategy": "max",
@@ -104,6 +108,7 @@ class DashScopeAdapter(LLMAdapter):
                     "stream": True,
                     "incremental_output": True,
                     "result_format": "message",
+                    "max_tokens": DEFAULT_MAX_TOKENS,
                 }
                 extract_fn = _extract_text_message_format
             else:
@@ -113,6 +118,7 @@ class DashScopeAdapter(LLMAdapter):
                     "api_key": self.api_key,
                     "stream": True,
                     "incremental_output": True,
+                    "max_tokens": DEFAULT_MAX_TOKENS,
                 }
                 extract_fn = _extract_text_prompt_format
 

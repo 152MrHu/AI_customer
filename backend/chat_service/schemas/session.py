@@ -22,6 +22,12 @@ class SendMessageRequest(BaseModel):
     content: str = Field(
         ..., min_length=1, max_length=2000, description="消息内容(1-2000字符)"
     )
+    attachment_text: Optional[str] = Field(
+        None, max_length=10000, description="从上传文件中提取的文字（可选）"
+    )
+    attachment_name: Optional[str] = Field(
+        None, max_length=255, description="上传文件名（可选）"
+    )
 
 
 class AgentMessageRequest(BaseModel):

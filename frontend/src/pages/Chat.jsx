@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout, Typography, Empty, message, theme, Segmented, Select, Button, Modal, Input, Alert, Tag } from 'antd'
-import { RobotOutlined, BookOutlined, GlobalOutlined, CustomerServiceOutlined, SyncOutlined } from '@ant-design/icons'
+import { RobotOutlined, BookOutlined, GlobalOutlined, CustomerServiceOutlined, SyncOutlined, FileWordOutlined } from '@ant-design/icons'
 import MainLayout from '../layouts/MainLayout'
 import SessionList from '../components/chat/SessionList'
 import MessageList from '../components/chat/MessageList'
@@ -8,6 +8,7 @@ import MessageInput from '../components/chat/MessageInput'
 import { chatApi } from '../api/chat'
 import { knowledgeApi } from '../api/knowledge'
 import { streamChat } from '../api/sse'
+import { getToken } from '../utils/auth'
 
 const { Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -30,6 +31,8 @@ export default function Chat() {
   const [handoffReason, setHandoffReason] = useState('')
   const [handoffLoading, setHandoffLoading] = useState(false)
   const [handoffTicket, setHandoffTicket] = useState(null)  // 当前会话的转人工工单
+  const [genDocLoading, setGenDocLoading] = useState(false)
+  const [lastDocUrl, setLastDocUrl] = useState(null)
   const streamAbortRef = useRef(false)
   const pollRef = useRef(null)
   const { token: themeToken } = theme.useToken()
@@ -204,6 +207,60 @@ export default function Chat() {
     [currentSessionId]
   )
 
+  // 生成文档
+  const handleGenerateDoc = useCallback(async () => {
+    console.log('[生成文档] 开始, messages:', messages.length)
+    const lastAiMsg = [...messages].reverse().find((m) => m.role === 'assistant' && m.content)
+    console.log('[生成文档] 找到AI消息:', !!lastAiMsg)
+    if (!lastAiMsg) {
+      message.warning('暂无 AI 回复可生成文档')
+      return
+    }
+    setGenDocLoading(true)
+    try {
+      const title = sessionDetail?.title || 'AI 生成文档'
+      console.log('[生成文档] 调用API:', currentSessionId, title)
+      const data = await chatApi.generateDoc(currentSessionId, {
+        title: title,
+        content: lastAiMsg.content,
+      })
+      console.log('[生成文档] API返回:', JSON.stringify(data))
+      const url = data.download_url
+      if (url) {
+        setLastDocUrl(url)
+        message.success('文档已生成，正在下载...')
+        // fetch + blob 下载（需要带 auth token，不能用 <a> 标签直接跳转）
+        try {
+          const token = getToken() || ''
+          const resp = await fetch(url, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          })
+          if (!resp.ok) throw new Error('下载失败')
+          const blob = await resp.blob()
+          const blobUrl = window.URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = blobUrl
+          link.download = data.file_name || '文档.docx'
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          window.URL.revokeObjectURL(blobUrl)
+        } catch (downloadErr) {
+          console.error('[生成文档] 下载失败:', downloadErr)
+          message.error('文档下载失败，请重试')
+        }
+      } else {
+        console.error('[生成文档] download_url为空:', data)
+        message.error('文档生成失败：未获取到下载链接')
+      }
+    } catch (e) {
+      console.error('[生成文档] 异常:', e)
+      message.error(e.message || '文档生成失败')
+    } finally {
+      setGenDocLoading(false)
+    }
+  }, [currentSessionId, messages, sessionDetail])
+
   const handleHandoff = useCallback(async () => {
     setHandoffLoading(true)
     try {
@@ -221,17 +278,21 @@ export default function Chat() {
   }, [currentSessionId, handoffReason])
 
   const handleSend = useCallback(
-    async (content) => {
+    async (content, attachmentText = null, attachmentName = null) => {
       if (!currentSessionId) {
         message.warning('请先选择或创建一个会话')
         return
       }
       if (streaming) return
 
+      // 显示带附件的用户消息
+      const displayContent = attachmentName
+        ? `[上传: ${attachmentName}]\n${content || '请分析文件内容'}`
+        : content
       const userMsg = {
         id: genMsgId(),
         role: 'user',
-        content,
+        content: displayContent,
         sources: [],
       }
       const aiMsgId = genMsgId()
@@ -245,7 +306,7 @@ export default function Chat() {
       setStreaming(true)
       streamAbortRef.current = false
 
-      await streamChat(currentSessionId, content, {
+      await streamChat(currentSessionId, content || '请分析文件内容', {
         onToken: (token) => {
           setMessages((prev) =>
             prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + token } : m))
@@ -258,7 +319,6 @@ export default function Chat() {
         },
         onDone: () => {
           setStreaming(false)
-          // 刷新会话列表以更新预览和时间
           loadSessions()
         },
         onError: (errMsg, code) => {
@@ -266,18 +326,14 @@ export default function Chat() {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === aiMsgId
-                ? {
-                    ...m,
-                    content: m.content || `抱歉，发生错误：${errMsg || '未知错误'}`,
-                  }
+                ? { ...m, content: m.content || `抱歉，发生错误：${errMsg || '未知错误'}` }
                 : m
             )
           )
           if (errMsg) message.error(errMsg)
         },
-      })
+      }, attachmentText, attachmentName)
 
-      // 兜底：若流异常结束未触发 done
       setStreaming(false)
     },
     [currentSessionId, streaming, loadSessions]
@@ -354,6 +410,14 @@ export default function Chat() {
                   </Tag>
                 )}
                 <div style={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  icon={<FileWordOutlined />}
+                  onClick={handleGenerateDoc}
+                  loading={genDocLoading}
+                >
+                  生成文档
+                </Button>
                 <Button
                   type="primary"
                   ghost

@@ -49,6 +49,7 @@ def is_upload_path(path: str, method: str) -> bool:
 def is_rate_limited(path: str, method: str) -> bool:
     """以下接口需要限流：
     - AI 问答：POST /api/chat/sessions/{id}/messages
+    - 文件上传：POST /api/chat/upload
     - 登录：POST /api/user/login
     - 注册：POST /api/user/register
     - 知识库文档上传：POST /api/knowledge/bases/{id}/documents
@@ -57,6 +58,9 @@ def is_rate_limited(path: str, method: str) -> bool:
         return False
     # AI 问答接口
     if path.startswith("/api/chat/sessions/") and path.endswith("/messages"):
+        return True
+    # 聊天文件上传
+    if path == "/api/chat/upload":
         return True
     # 登录 + 注册
     if path in ("/api/user/login", "/api/user/register"):

@@ -17,17 +17,12 @@ logger = get_logger()
 
 
 async def send_message(
-    session_id: int, user_id: int, content: str
+    session_id: int, user_id: int, content: str,
+    attachment_text: str = None, attachment_name: str = None,
 ) -> AsyncGenerator[str, None]:
     """
-    发送消息，SSE 流式返回：
-    1. 校验会话归属
-    2. 校验消息内容
-    3. 保存用户消息
-    4. 首条消息更新会话标题
-    5. 加载最近 10 轮上下文
-    6. 调用 ai-service SSE 流式，透传 token / sources / done / error 帧
-    7. done 时保存 AI 回答；error 时保存兜底提示
+    发送消息，SSE 流式返回。
+    支持附件文字内容（从上传文件/图片中提取），作为对话上下文拼入 query。
     """
     # 1. 校验会话归属
     session = await session_repo.find_by_id_and_user(session_id, user_id)
@@ -36,30 +31,29 @@ async def send_message(
         return
 
     # 2. 校验消息内容
-    if not content or not content.strip():
+    has_text = content and content.strip()
+    has_attachment = attachment_text and attachment_text.strip()
+    if not has_text and not has_attachment:
         yield error_frame(3002, "消息内容为空")
         return
 
-    # 基础安全检查：拒绝明显恶意内容
-    if len(content) > 2000:
+    # 基础安全检查
+    if len(content or "") > 2000:
         yield error_frame(3002, "消息内容过长")
         return
 
-    # 检测简单的重复字符攻击
-    if len(set(content)) == 1 and len(content) > 50:
-        yield error_frame(3002, "消息内容无效")
-        return
-
-    # 3. 保存用户消息
-    await message_repo.insert_message(session_id, "user", content)
+    # 3. 保存用户消息（含附件信息）
+    saved_content = content or ""
+    if attachment_name:
+        saved_content = f"[上传文件: {attachment_name}]\n\n{attachment_text}\n\n---\n{saved_content}"
+    await message_repo.insert_message(session_id, "user", saved_content)
 
     # 4. 首条消息更新会话标题
     if session.get("title", "新会话") == "新会话":
-        new_title = content.strip()[:20]
+        new_title = (content or attachment_name or "文件")[:20]
         await session_repo.update_title(session_id, new_title)
 
-    # 5. 检查是否有活跃的人工客服工单（claimed 状态）
-    #    如果有，跳过 AI，消息直接送达客服
+    # 5. 检查是否有活跃的人工客服工单
     active_ticket = await handoff_repo.find_claimed_by_session(session_id)
     if active_ticket:
         logger.info("会话已有客服处理中，跳过AI: session_id=%s", session_id)
@@ -74,7 +68,17 @@ async def send_message(
         for r in context_rows
     ]
 
-    # 7. 调用 ai-service SSE 流式
+    # 7. 构建完整 query（附件文字 + 用户输入）
+    full_query = content or ""
+    if attachment_text and attachment_text.strip():
+        attachment_info = f"用户上传了文件「{attachment_name or '未知文件'}」，以下是文件内容：\n\n{attachment_text}\n\n"
+        if full_query:
+            attachment_info += f"基于以上文件内容，回答用户问题：{full_query}"
+        else:
+            attachment_info += "请总结以上文件的主要内容"
+        full_query = attachment_info
+
+    # 8. 调用 ai-service SSE 流式
     kb_id = session.get("kb_id") or 1
     mode = session.get("mode", "kb")
     full_response = ""

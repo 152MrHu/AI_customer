@@ -48,7 +48,9 @@ async def send_message(
 
     async def generate():
         async for frame in message_service.send_message(
-            session_id, user_id, body.content
+            session_id, user_id, body.content,
+            attachment_text=body.attachment_text,
+            attachment_name=body.attachment_name,
         ):
             yield frame
 

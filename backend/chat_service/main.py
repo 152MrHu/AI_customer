@@ -15,6 +15,8 @@ from common.exception_handlers import register_exception_handlers
 from common.logging_config import setup_logger
 
 from chat_service.routers.session import router
+from chat_service.routers.upload import router as upload_router
+from chat_service.routers.document import router as doc_router
 
 logger = setup_logger("chat_service")
 
@@ -48,6 +50,8 @@ register_exception_handlers(app)
 
 # 挂载路由
 app.include_router(router)
+app.include_router(upload_router)
+app.include_router(doc_router)
 
 
 if __name__ == "__main__":

@@ -43,8 +43,14 @@ async function readSSEStream(resp, callbacks) {
   }
 }
 
-export async function streamChat(sessionId, content, callbacks) {
+export async function streamChat(sessionId, content, callbacks, attachmentText = null, attachmentName = null) {
   const token = getToken()
+
+  const body = { content }
+  if (attachmentText) {
+    body.attachment_text = attachmentText
+    body.attachment_name = attachmentName
+  }
 
   const resp = await fetch(`${BASE}/api/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
@@ -52,7 +58,7 @@ export async function streamChat(sessionId, content, callbacks) {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : '',
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
   })
 
   await readSSEStream(resp, callbacks)
